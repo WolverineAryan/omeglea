@@ -31,8 +31,9 @@ import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Modal } from '../../components/ui/Modal';
 import { Badge } from '../../components/ui/Badge';
-import { api } from '../../lib/api';
 import { formatTime } from '../../lib/utils';
+import { api, getCleanBackendUrl, updateApiBaseUrl } from '../../lib/api';
+import { reconnectSocketWithUrl } from '../../lib/socket';
 import { IChatMessage, MatchFoundPayload, ReportCategory } from '@omeglea/shared';
 
 const ICE_SERVERS: RTCConfiguration = {
@@ -100,6 +101,23 @@ export default function VideoChatPage() {
   const [isDiagnosticOpen, setIsDiagnosticOpen] = useState(false);
   const [diagnosticResult, setDiagnosticResult] = useState<any>(null);
   const [isPinging, setIsPinging] = useState(false);
+  const [backendUrlInput, setBackendUrlInput] = useState('');
+
+  useEffect(() => {
+    setBackendUrlInput(getCleanBackendUrl());
+  }, []);
+
+  const handleSaveBackendUrl = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!backendUrlInput.trim()) return;
+    const clean = backendUrlInput.trim().replace(/\/api\/?$/, '').replace(/\/+$/, '');
+    updateApiBaseUrl(clean);
+    reconnectSocketWithUrl(clean);
+    showToast(`Connecting to ${clean}...`, 'info');
+    setTimeout(() => {
+      handleRunDiagnostics();
+    }, 1500);
+  };
 
   // Call duration timer
   useEffect(() => {
@@ -1136,6 +1154,28 @@ export default function VideoChatPage() {
               </div>
             </div>
           )}
+
+          {/* Backend Server URL Config Form */}
+          <form onSubmit={handleSaveBackendUrl} className="p-3 rounded-xl bg-slate-900/90 border border-white/10 space-y-2">
+            <label className="text-[11px] font-semibold text-slate-300 block">
+              Backend Server URL (Render / Production / Local)
+            </label>
+            <div className="flex gap-1.5">
+              <input
+                type="text"
+                value={backendUrlInput}
+                onChange={(e) => setBackendUrlInput(e.target.value)}
+                placeholder="https://your-server.onrender.com"
+                className="flex-1 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+              />
+              <Button type="submit" variant="gradient" size="sm" className="px-3 text-xs">
+                Save &amp; Connect
+              </Button>
+            </div>
+            <p className="text-[10px] text-slate-500">
+              Enter your live Render backend URL if your Vercel deployment has a typo or DNS issue.
+            </p>
+          </form>
 
           <div className="flex gap-2 pt-2">
             <Button

@@ -1,13 +1,6 @@
 import { io, Socket } from 'socket.io-client';
 import { ClientToServerEvents, ServerToClientEvents } from '@omeglea/shared';
-
-const rawSocketUrl =
-  process.env.NEXT_PUBLIC_SOCKET_URL ||
-  process.env.NEXT_PUBLIC_API_URL ||
-  'http://localhost:4000';
-
-// Strip trailing /api or trailing slashes for socket endpoint
-export const SOCKET_URL = rawSocketUrl.replace(/\/api\/?$/, '').replace(/\/+$/, '');
+import { getCleanBackendUrl } from './api';
 
 let socketInstance: Socket<ServerToClientEvents, ClientToServerEvents> | null = null;
 
@@ -18,23 +11,24 @@ function getStoredToken(): string {
 
 export function getSocket(): Socket<ServerToClientEvents, ClientToServerEvents> {
   const token = getStoredToken();
+  const currentUrl = getCleanBackendUrl();
 
   if (!socketInstance) {
-    socketInstance = io(SOCKET_URL, {
+    socketInstance = io(currentUrl, {
       auth: (cb) => {
         cb({ token: getStoredToken() });
       },
       autoConnect: false,
       reconnection: true,
-      reconnectionAttempts: 30,
+      reconnectionAttempts: 40,
       reconnectionDelay: 1000,
-      reconnectionDelayMax: 4000,
+      reconnectionDelayMax: 3000,
       transports: ['websocket', 'polling'],
       withCredentials: true,
     });
 
     socketInstance.on('connect', () => {
-      console.log('🔌 Socket connected:', socketInstance?.id, 'to', SOCKET_URL);
+      console.log('🔌 Socket connected successfully to:', currentUrl);
     });
 
     socketInstance.on('disconnect', (reason) => {
@@ -45,7 +39,7 @@ export function getSocket(): Socket<ServerToClientEvents, ClientToServerEvents> 
     });
 
     socketInstance.on('connect_error', (err) => {
-      console.warn('🔌 Socket connection error to', SOCKET_URL, ':', err.message);
+      console.warn('🔌 Socket connection error to', currentUrl, ':', err.message);
     });
   } else {
     socketInstance.auth = { token };
@@ -60,6 +54,18 @@ export function updateSocketAuthToken(token: string): void {
   if (socket.connected) {
     socket.disconnect().connect();
   }
+}
+
+export function reconnectSocketWithUrl(newUrl: string): void {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('omeglea_backend_url', newUrl);
+  }
+  if (socketInstance) {
+    socketInstance.disconnect();
+    socketInstance = null;
+  }
+  const newSocket = getSocket();
+  newSocket.connect();
 }
 
 export function disconnectSocket(): void {

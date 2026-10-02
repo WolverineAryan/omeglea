@@ -1,16 +1,34 @@
 import axios from 'axios';
 
-const rawUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-// Strip trailing /api or trailing slashes to prevent double /api/api
-const cleanBaseUrl = rawUrl.replace(/\/api\/?$/, '').replace(/\/+$/, '');
+export function getCleanBackendUrl(): string {
+  if (typeof window !== 'undefined') {
+    const custom = localStorage.getItem('omeglea_backend_url');
+    if (custom && custom.trim().startsWith('http')) {
+      return custom.trim().replace(/\/api\/?$/, '').replace(/\/+$/, '');
+    }
+  }
+
+  const envUrl = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_SOCKET_URL || '';
+  // Check if envUrl contains unreplaced placeholders or masked characters
+  if (envUrl && !envUrl.includes('<') && !envUrl.includes('>') && !envUrl.includes('••') && !envUrl.includes('xn--')) {
+    return envUrl.trim().replace(/\/api\/?$/, '').replace(/\/+$/, '');
+  }
+
+  return 'http://localhost:4000';
+}
 
 export const api = axios.create({
-  baseURL: `${cleanBaseUrl}/api`,
+  baseURL: `${getCleanBackendUrl()}/api`,
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
 });
+
+export function updateApiBaseUrl(newUrl: string): void {
+  const clean = newUrl.trim().replace(/\/api\/?$/, '').replace(/\/+$/, '');
+  api.defaults.baseURL = `${clean}/api`;
+}
 
 // Attach Authorization Bearer token from localStorage
 api.interceptors.request.use((config) => {
