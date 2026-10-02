@@ -90,11 +90,16 @@ export default function VideoChatPage() {
   const [isTyping, setIsTyping] = useState(false);
   const [peerIsTyping, setPeerIsTyping] = useState(false);
 
-  // Modals
+  // Modals & Diagnostics
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [reportCategory, setReportCategory] = useState<ReportCategory>('inappropriate_behavior');
   const [reportDescription, setReportDescription] = useState('');
   const [isBlockModalOpen, setIsBlockModalOpen] = useState(false);
+  const [socketConnected, setSocketConnected] = useState(false);
+  const [activeQueueCount, setActiveQueueCount] = useState<number>(0);
+  const [isDiagnosticOpen, setIsDiagnosticOpen] = useState(false);
+  const [diagnosticResult, setDiagnosticResult] = useState<any>(null);
+  const [isPinging, setIsPinging] = useState(false);
 
   // Call duration timer
   useEffect(() => {
@@ -232,6 +237,23 @@ export default function VideoChatPage() {
       socket.connect();
     }
 
+    // Socket Connection Status Listeners
+    setSocketConnected(socket.connected);
+
+    socket.on('connect', () => {
+      setSocketConnected(true);
+    });
+
+    socket.on('disconnect', () => {
+      setSocketConnected(false);
+    });
+
+    socket.on('matching:waiting', (data) => {
+      if (data?.position !== undefined) {
+        setActiveQueueCount(data.position);
+      }
+    });
+
     // Match Found
     socket.on('matching:found', async (data: MatchFoundPayload) => {
       setActiveMatch(data);
@@ -339,6 +361,9 @@ export default function VideoChatPage() {
     });
 
     return () => {
+      socket.off('connect');
+      socket.off('disconnect');
+      socket.off('matching:waiting');
       socket.off('matching:found');
       socket.off('call:offer');
       socket.off('call:answer');
@@ -360,6 +385,85 @@ export default function VideoChatPage() {
     addMessage,
     showToast,
   ]);
+
+  // Run full system diagnostics test
+  const handleRunDiagnostics = async () => {
+    setIsPinging(true);
+    const startHttp = Date.now();
+    let httpOk = false;
+    let httpLatency = 0;
+    let httpData = null;
+
+    try {
+      const res = await api.get('/health');
+      httpLatency = Date.now() - startHttp;
+      httpOk = res.status === 200;
+      httpData = res.data;
+    } catch (e: any) {
+      httpLatency = Date.now() - startHttp;
+      httpData = { error: e.message };
+    }
+
+    const socket = getSocket();
+    const startSocket = Date.now();
+    let socketLatency = 0;
+    let socketData: any = null;
+
+    if (socket.connected) {
+      socket.emit('diagnostic:ping' as any, (response: any) => {
+        socketLatency = Date.now() - startSocket;
+        socketData = response;
+        setDiagnosticResult({
+          httpOk,
+          httpLatency,
+          httpData,
+          socketOk: true,
+          socketLatency,
+          socketData,
+          cameraReady: isCameraReady,
+          userId: user?.id,
+          userDisplayName: user?.displayName,
+          testedAt: new Date().toLocaleTimeString(),
+        });
+        setIsPinging(false);
+      });
+      // Fallback timeout in case callback isn't supported on old server build
+      setTimeout(() => {
+        setIsPinging((prev) => {
+          if (prev) {
+            setDiagnosticResult({
+              httpOk,
+              httpLatency,
+              httpData,
+              socketOk: socket.connected,
+              socketLatency: socket.connected ? Date.now() - startSocket : 0,
+              socketData: { socketId: socket.id, connected: socket.connected },
+              cameraReady: isCameraReady,
+              userId: user?.id,
+              userDisplayName: user?.displayName,
+              testedAt: new Date().toLocaleTimeString(),
+            });
+            return false;
+          }
+          return false;
+        });
+      }, 2000);
+    } else {
+      setDiagnosticResult({
+        httpOk,
+        httpLatency,
+        httpData,
+        socketOk: false,
+        socketLatency: 0,
+        socketData: { error: 'Socket is not connected' },
+        cameraReady: isCameraReady,
+        userId: user?.id,
+        userDisplayName: user?.displayName,
+        testedAt: new Date().toLocaleTimeString(),
+      });
+      setIsPinging(false);
+    }
+  };
 
   // Initial media setup on mount
   useEffect(() => {
@@ -619,17 +723,36 @@ export default function VideoChatPage() {
   // -------------------------------------------------------------
   return (
     <div className="h-[calc(100vh-4rem)] flex flex-col bg-[#070B16] text-slate-100 overflow-hidden select-none">
-      {/* Omegle-style Safety Warning Banner */}
+      {/* Omegle-style Safety Warning Banner & Live Connection Health */}
       <div className="px-4 py-1.5 bg-[#0e1628] border-b border-white/5 flex items-center justify-between text-xs text-slate-400">
-        <div className="flex items-center gap-2 overflow-hidden">
+        <div className="flex items-center gap-3 overflow-hidden">
           <span className="font-bold text-pink-400 shrink-0">Omeglea (18+):</span>
-          <span className="truncate text-[11px] text-slate-300">
+          <span className="truncate text-[11px] text-slate-300 hidden sm:inline">
             Video chat is moderated for community safety. Explicit content, harassment, and under-18 users are strictly prohibited.
           </span>
         </div>
-        <Link href="/safety" className="text-purple-400 hover:underline shrink-0 text-[11px] ml-2">
-          Safety Center →
-        </Link>
+
+        <div className="flex items-center gap-2.5 shrink-0">
+          <button
+            onClick={() => {
+              setIsDiagnosticOpen(true);
+              handleRunDiagnostics();
+            }}
+            title="Click to check connection health & server status"
+            className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[10px] font-semibold text-slate-300 transition"
+          >
+            <span
+              className={`h-2 w-2 rounded-full ${
+                socketConnected ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'
+              }`}
+            />
+            <span>{socketConnected ? 'Server Connected' : 'Connecting to Server...'}</span>
+          </button>
+
+          <Link href="/safety" className="text-purple-400 hover:underline text-[11px]">
+            Safety Center →
+          </Link>
+        </div>
       </div>
 
       {/* Main Omegle / OmeTV Split Stage */}
@@ -948,6 +1071,89 @@ export default function VideoChatPage() {
             </Button>
             <Button variant="danger" size="md" onClick={handleConfirmBlock} className="flex-1 font-bold">
               Yes, Block &amp; Next
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Live System & Network Diagnostics Modal */}
+      <Modal
+        isOpen={isDiagnosticOpen}
+        onClose={() => setIsDiagnosticOpen(false)}
+        title="Live Server & Connection Diagnostics"
+      >
+        <div className="space-y-4 text-xs">
+          <p className="text-slate-300">
+            Use this panel to verify real-time connectivity between your device, the Render WebSocket server, and WebRTC media streams.
+          </p>
+
+          <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
+            <div className="flex justify-between items-center pb-2 border-b border-slate-800">
+              <span className="text-slate-400">WebSocket Socket.IO:</span>
+              <span className={`font-bold flex items-center gap-1.5 ${socketConnected ? 'text-emerald-400' : 'text-rose-400'}`}>
+                <span className={`h-2 w-2 rounded-full ${socketConnected ? 'bg-emerald-400' : 'bg-rose-500'}`} />
+                {socketConnected ? 'Connected & Ready' : 'Disconnected / Reconnecting'}
+              </span>
+            </div>
+
+            <div className="flex justify-between items-center pb-2 border-b border-slate-800">
+              <span className="text-slate-400">Authenticated As:</span>
+              <span className="font-semibold text-white">
+                {user?.displayName ? `${user.displayName} (18+ Verified)` : 'Not Logged In'}
+              </span>
+            </div>
+
+            <div className="flex justify-between items-center pb-2 border-b border-slate-800">
+              <span className="text-slate-400">Local Camera &amp; Mic:</span>
+              <span className={`font-bold ${isCameraReady ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {isCameraReady ? 'Access Granted' : 'Waiting for Permission'}
+              </span>
+            </div>
+
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">Active Match State:</span>
+              <span className="font-mono text-purple-400 font-semibold uppercase">{matchState}</span>
+            </div>
+          </div>
+
+          {diagnosticResult && (
+            <div className="p-3 rounded-xl bg-purple-950/30 border border-purple-500/20 space-y-1.5 text-[11px]">
+              <div className="flex justify-between">
+                <span className="text-slate-400">HTTP API Latency:</span>
+                <span className="font-mono text-white">{diagnosticResult.httpLatency}ms {diagnosticResult.httpOk ? '✅' : '❌'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Socket Latency:</span>
+                <span className="font-mono text-white">{diagnosticResult.socketLatency}ms {diagnosticResult.socketOk ? '✅' : '❌'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Matchmaking Queue Size:</span>
+                <span className="font-mono text-emerald-400">{diagnosticResult.socketData?.queueSize ?? activeQueueCount} user(s) waiting</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Last Ping Tested:</span>
+                <span className="text-slate-300">{diagnosticResult.testedAt}</span>
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-2">
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={handleRunDiagnostics}
+              isLoading={isPinging}
+              className="flex-1"
+            >
+              Run Test Again
+            </Button>
+            <Button
+              variant="gradient"
+              size="md"
+              onClick={() => setIsDiagnosticOpen(false)}
+              className="flex-1 font-bold"
+            >
+              Done
             </Button>
           </div>
         </div>

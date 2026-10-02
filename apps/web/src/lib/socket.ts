@@ -1,7 +1,13 @@
 import { io, Socket } from 'socket.io-client';
 import { ClientToServerEvents, ServerToClientEvents } from '@omeglea/shared';
 
-const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:4000';
+const rawSocketUrl =
+  process.env.NEXT_PUBLIC_SOCKET_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  'http://localhost:4000';
+
+// Strip trailing /api or trailing slashes for socket endpoint
+export const SOCKET_URL = rawSocketUrl.replace(/\/api\/?$/, '').replace(/\/+$/, '');
 
 let socketInstance: Socket<ServerToClientEvents, ClientToServerEvents> | null = null;
 
@@ -20,7 +26,7 @@ export function getSocket(): Socket<ServerToClientEvents, ClientToServerEvents> 
       },
       autoConnect: false,
       reconnection: true,
-      reconnectionAttempts: 20,
+      reconnectionAttempts: 30,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 4000,
       transports: ['websocket', 'polling'],
@@ -28,22 +34,20 @@ export function getSocket(): Socket<ServerToClientEvents, ClientToServerEvents> 
     });
 
     socketInstance.on('connect', () => {
-      console.log('🔌 Socket connected:', socketInstance?.id);
+      console.log('🔌 Socket connected:', socketInstance?.id, 'to', SOCKET_URL);
     });
 
     socketInstance.on('disconnect', (reason) => {
       console.log('🔌 Socket disconnected:', reason);
       if (reason === 'io server disconnect') {
-        // the disconnection was initiated by the server, reconnect manually
         socketInstance?.connect();
       }
     });
 
     socketInstance.on('connect_error', (err) => {
-      console.warn('🔌 Socket connection error:', err.message);
+      console.warn('🔌 Socket connection error to', SOCKET_URL, ':', err.message);
     });
   } else {
-    // Ensure current token is refreshed in socket auth
     socketInstance.auth = { token };
   }
 

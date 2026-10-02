@@ -14,7 +14,7 @@ import { Card } from '../../components/ui/Card';
 function ResetPasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const token = searchParams.get('token') || '';
+  const token = searchParams ? searchParams.get('token') || '' : '';
   const { showToast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
 
