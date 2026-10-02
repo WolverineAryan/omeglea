@@ -43,6 +43,18 @@ async function bootstrap() {
 
   process.on('SIGTERM', () => handleShutdown('SIGTERM'));
   process.on('SIGINT', () => handleShutdown('SIGINT'));
+
+  process.on('unhandledRejection', (reason: any) => {
+    logger.error('Unhandled Promise Rejection:', reason);
+  });
+
+  process.on('uncaughtException', (err: Error) => {
+    logger.error('Uncaught Exception:', err);
+    if (env.NODE_ENV === 'production') {
+      // In production, log and attempt graceful restart
+      handleShutdown('UNCAUGHT_EXCEPTION');
+    }
+  });
 }
 
 bootstrap().catch((err) => {

@@ -2,14 +2,24 @@ import rateLimit from 'express-rate-limit';
 
 export const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 300, // Limit each IP to 300 requests per window
+  max: 600, // High throughput: 600 requests per 15 min per client IP
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.path === '/api/health' || req.path === '/health',
+  keyGenerator: (req) => {
+    return (
+      (req.headers['cf-connecting-ip'] as string) ||
+      (req.headers['x-real-ip'] as string) ||
+      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+      req.ip ||
+      'unknown-ip'
+    );
+  },
   message: {
     success: false,
     error: {
       code: 'RATE_LIMIT_EXCEEDED',
-      message: 'Too many requests from this IP, please try again after 15 minutes',
+      message: 'Too many requests, please slow down and try again shortly.',
     },
   },
 });

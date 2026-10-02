@@ -10,9 +10,12 @@ export async function connectDB(): Promise<void> {
 
   try {
     const opts: mongoose.ConnectOptions = {
-      maxPoolSize: 10, // Safe for MongoDB Atlas M0 free tier
+      maxPoolSize: env.NODE_ENV === 'production' ? 50 : 10,
+      minPoolSize: env.NODE_ENV === 'production' ? 5 : 1,
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
+      connectTimeoutMS: 10000,
+      heartbeatFrequencyMS: 10000,
     };
 
     mongoose.connection.on('connected', () => {
@@ -38,6 +41,21 @@ export async function connectDB(): Promise<void> {
       console.warn('⚠️ Running in development mode without active MongoDB. Some database features may be limited until MongoDB is connected.');
     }
   }
+}
+
+export function getDBHealth(): { status: string; isConnected: boolean; readyState: number } {
+  const readyStates: Record<number, string> = {
+    0: 'disconnected',
+    1: 'connected',
+    2: 'connecting',
+    3: 'disconnecting',
+  };
+  const state = mongoose.connection.readyState;
+  return {
+    status: readyStates[state] || 'unknown',
+    isConnected: state === 1,
+    readyState: state,
+  };
 }
 
 export async function disconnectDB(): Promise<void> {

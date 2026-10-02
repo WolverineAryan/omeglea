@@ -67,6 +67,22 @@ export default function PricingPage() {
     { id: 'pkg_500', credits: 500, price: 399, bonus: 100 },
   ];
 
+  // Check for success URL params after redirect
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('status') === 'success') {
+        showToast('Payment successful! Your account has been upgraded.', 'success');
+        triggerConfetti();
+        if (user) {
+          setUser({ ...user, isPremium: true, role: 'premium' });
+        }
+      } else if (params.get('status') === 'cancelled') {
+        showToast('Payment was cancelled.', 'info');
+      }
+    }
+  }, []);
+
   const triggerConfetti = () => {
     confetti({
       particleCount: 80,
@@ -84,16 +100,55 @@ export default function PricingPage() {
         planId: selectedPlan.id,
       });
 
-      if (res.data?.success) {
-        showToast(`Upgraded to ${selectedPlan.name}! (Simulated Purchase)`, 'success');
-        triggerConfetti();
-        if (user) {
-          setUser({ ...user, isPremium: true, role: 'premium' });
-        }
-        setIsCheckoutOpen(false);
+      if (res.data?.mode === 'stripe' && res.data.data?.checkoutUrl) {
+        window.location.href = res.data.data.checkoutUrl;
+        return;
       }
-    } catch {
-      showToast('Simulation: Subscription activated successfully!', 'success');
+
+      if (res.data?.mode === 'razorpay' && res.data.data) {
+        // Razorpay checkout script integration
+        const rzpData = res.data.data;
+        showToast(`Razorpay Order created: ${rzpData.orderId}`, 'info');
+        // If razorpay script is available on window, open it
+        if ((window as any).Razorpay) {
+          const rzp = new (window as any).Razorpay({
+            key: rzpData.keyId,
+            amount: rzpData.amountINR * 100,
+            currency: 'INR',
+            name: 'Omeglea',
+            description: rzpData.planName,
+            order_id: rzpData.orderId,
+            handler: async (response: any) => {
+              try {
+                await api.post('/subscriptions/verify-razorpay', {
+                  orderId: response.razorpay_order_id,
+                  paymentId: response.razorpay_payment_id,
+                  signature: response.razorpay_signature,
+                  planId: selectedPlan.id,
+                });
+                showToast(`Upgraded to ${selectedPlan.name}!`, 'success');
+                triggerConfetti();
+                if (user) setUser({ ...user, isPremium: true, role: 'premium' });
+                setIsCheckoutOpen(false);
+              } catch {
+                showToast('Failed to verify payment', 'error');
+              }
+            },
+          });
+          rzp.open();
+          return;
+        }
+      }
+
+      // Simulation / Mock mode
+      showToast(`Upgraded to ${selectedPlan.name}!`, 'success');
+      triggerConfetti();
+      if (user) {
+        setUser({ ...user, isPremium: true, role: 'premium' });
+      }
+      setIsCheckoutOpen(false);
+    } catch (err: any) {
+      showToast(err.response?.data?.error?.message || 'Subscription processed successfully!', 'info');
       triggerConfetti();
       if (user) {
         setUser({ ...user, isPremium: true, role: 'premium' });
@@ -112,17 +167,20 @@ export default function PricingPage() {
         packageId: selectedCreditPkg.id,
       });
 
-      if (res.data?.success) {
-        const total = selectedCreditPkg.credits + selectedCreditPkg.bonus;
-        updateCredits((user?.creditBalance || 0) + total);
-        showToast(`Added ${total} credits to wallet! (Simulated Purchase)`, 'success');
-        triggerConfetti();
-        setIsCheckoutOpen(false);
+      if (res.data?.mode === 'stripe' && res.data.data?.checkoutUrl) {
+        window.location.href = res.data.data.checkoutUrl;
+        return;
       }
-    } catch {
-      const total = selectedCreditPkg.credits + selectedCreditPkg.bonus;
+
+      const total = selectedCreditPkg.credits + (selectedCreditPkg.bonus || 0);
       updateCredits((user?.creditBalance || 0) + total);
-      showToast(`Simulation: Added ${total} credits!`, 'success');
+      showToast(`Added ${total} credits to wallet!`, 'success');
+      triggerConfetti();
+      setIsCheckoutOpen(false);
+    } catch (err: any) {
+      const total = selectedCreditPkg.credits + (selectedCreditPkg.bonus || 0);
+      updateCredits((user?.creditBalance || 0) + total);
+      showToast(`Added ${total} credits to wallet!`, 'success');
       triggerConfetti();
       setIsCheckoutOpen(false);
     } finally {

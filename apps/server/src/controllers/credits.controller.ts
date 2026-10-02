@@ -3,7 +3,9 @@ import { CreditTransaction } from '../models/CreditTransaction.js';
 import { User } from '../models/User.js';
 import {
   CREDIT_PACKAGES,
-  processMockCreditPurchase,
+  createCreditCheckoutSession,
+  verifyRazorpaySignature,
+  fulfillCreditPurchase,
 } from '../services/payment.service.js';
 import { CheckoutCreditsInput } from '@omeglea/shared';
 
@@ -54,26 +56,51 @@ export async function listCreditTransactions(req: Request, res: Response): Promi
 }
 
 export async function checkoutCredits(
-  req: Request<{}, {}, CheckoutCreditsInput>,
+  req: Request<{}, {}, CheckoutCreditsInput & { gateway?: 'stripe' | 'razorpay' | 'auto' }>,
   res: Response
 ): Promise<void> {
   const userId = req.user!.userId;
-  const { packageId } = req.body;
-  const idempotencyKey = req.headers['idempotency-key'] as string;
+  const { packageId, gateway = 'auto' } = req.body;
+  const origin = req.headers.origin || req.headers.referer?.replace(/\/+$/, '');
 
   try {
-    const { transaction, newBalance } = await processMockCreditPurchase(
-      userId,
-      packageId,
-      idempotencyKey
-    );
+    const result = await createCreditCheckoutSession(userId, packageId, gateway, origin);
 
+    if (result.mode === 'stripe') {
+      res.status(200).json({
+        success: true,
+        mode: 'stripe',
+        data: {
+          checkoutUrl: result.checkoutUrl,
+        },
+      });
+      return;
+    }
+
+    const pkg = CREDIT_PACKAGES.find((p) => p.id === packageId);
+
+    if (result.mode === 'razorpay') {
+      res.status(200).json({
+        success: true,
+        mode: 'razorpay',
+        data: {
+          orderId: result.orderId,
+          keyId: result.keyId,
+          amountINR: pkg?.priceINR || 0,
+          packageName: `${pkg?.credits} Credits`,
+        },
+      });
+      return;
+    }
+
+    // Mock Mode
     res.status(200).json({
       success: true,
+      mode: 'mock',
       message: 'Credits added successfully (Simulation Mode)',
       data: {
-        transaction,
-        newBalance,
+        transaction: result.transaction,
+        newBalance: result.newBalance,
         note: 'This is a simulated transaction. No real funds were charged.',
       },
     });
@@ -81,6 +108,39 @@ export async function checkoutCredits(
     res.status(400).json({
       success: false,
       error: { message: err.message || 'Credit purchase failed' },
+    });
+  }
+}
+
+export async function verifyRazorpayCredits(req: Request, res: Response): Promise<void> {
+  const userId = req.user!.userId;
+  const { orderId, paymentId, signature, packageId } = req.body;
+
+  const isValid = verifyRazorpaySignature(orderId, paymentId, signature);
+  if (!isValid) {
+    res.status(400).json({
+      success: false,
+      error: { message: 'Invalid payment signature verification' },
+    });
+    return;
+  }
+
+  try {
+    const { transaction, newBalance } = await fulfillCreditPurchase(
+      userId,
+      packageId,
+      'razorpay',
+      paymentId
+    );
+    res.status(200).json({
+      success: true,
+      message: 'Payment verified and credits added successfully',
+      data: { transaction, newBalance },
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: { message: err.message || 'Failed to award credits' },
     });
   }
 }

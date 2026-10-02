@@ -1,9 +1,12 @@
 import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import { corsOptions } from './config/cors.js';
 import { globalLimiter } from './middleware/rateLimit.middleware.js';
 import { errorHandler } from './middleware/error.middleware.js';
+import { getDBHealth } from './config/db.js';
+import { env } from './config/env.js';
 
 // Route imports
 import authRoutes from './routes/auth.routes.js';
@@ -21,6 +24,22 @@ import { mediaRouter } from './routes/media.routes.js';
 export function createApp(): Express {
   const app = express();
 
+  // Reverse Proxy / Load Balancer Configuration (Cloudflare, Render, AWS, Vercel)
+  if (env.TRUST_PROXY) {
+    app.set('trust proxy', 1);
+  }
+
+  // Response Compression for High Throughput & Low Latency
+  app.use(
+    compression({
+      threshold: 1024, // Compress responses over 1KB
+      filter: (req, res) => {
+        if (req.headers['x-no-compression']) return false;
+        return compression.filter(req, res);
+      },
+    })
+  );
+
   // Security Headers
   app.use(
     helmet({
@@ -33,19 +52,32 @@ export function createApp(): Express {
   app.use(cors(corsOptions));
 
   // Body parsers
-  app.use(express.json({ limit: '1mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+  app.use(express.json({ limit: '2mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
   // Global Rate Limiter
   app.use(globalLimiter);
 
-  // Health Check Endpoint (For Render, Vercel, Uptime monitors)
-  app.get('/api/health', (req: Request, res: Response) => {
-    res.status(200).json({
-      status: 'ok',
+  // Production-Grade Health Check (Database status, memory, uptime, environment)
+  app.get(['/api/health', '/health'], (req: Request, res: Response) => {
+    const dbHealth = getDBHealth();
+    const memUsage = process.memoryUsage();
+
+    const isHealthy = dbHealth.isConnected || env.NODE_ENV !== 'production';
+
+    res.status(isHealthy ? 200 : 503).json({
+      status: isHealthy ? 'healthy' : 'degraded',
       service: 'omeglea-api',
-      timestamp: new Date().toISOString(),
+      environment: env.NODE_ENV,
+      paymentMode: env.PAYMENT_MODE,
+      database: dbHealth,
+      memory: {
+        rssMB: Math.round(memUsage.rss / 1024 / 1024),
+        heapUsedMB: Math.round(memUsage.heapUsed / 1024 / 1024),
+        heapTotalMB: Math.round(memUsage.heapTotal / 1024 / 1024),
+      },
       uptimeSeconds: Math.floor(process.uptime()),
+      timestamp: new Date().toISOString(),
     });
   });
 
