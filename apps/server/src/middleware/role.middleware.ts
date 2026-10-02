@@ -5,8 +5,9 @@ const roleHierarchy: Record<UserRole, number> = {
   guest: 0,
   free: 1,
   premium: 2,
-  moderator: 3,
-  admin: 4,
+  vip: 3,
+  moderator: 4,
+  admin: 5,
 };
 
 export function requireRole(...allowedRoles: UserRole[]) {

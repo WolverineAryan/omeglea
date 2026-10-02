@@ -15,6 +15,8 @@ export interface IUserDocument extends Document {
   passwordResetToken?: string;
   passwordResetExpires?: Date;
   creditBalance: number;
+  dailyCallsUsed: number;
+  lastCallDate: string;
   isPremium: boolean;
   premiumExpiresAt?: Date;
   createdAt: Date;
@@ -45,7 +47,7 @@ const userSchema = new Schema<IUserDocument>(
     },
     role: {
       type: String,
-      enum: ['guest', 'free', 'premium', 'moderator', 'admin'],
+      enum: ['guest', 'free', 'premium', 'vip', 'moderator', 'admin'],
       default: 'free',
       index: true,
     },
@@ -83,6 +85,15 @@ const userSchema = new Schema<IUserDocument>(
       type: Number,
       default: 0,
       min: 0,
+    },
+    dailyCallsUsed: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    lastCallDate: {
+      type: String,
+      default: () => new Date().toISOString().split('T')[0],
     },
     isPremium: {
       type: Boolean,

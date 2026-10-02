@@ -1,4 +1,4 @@
-export type SubscriptionPlanId = 'weekly' | 'monthly' | 'quarterly';
+export type SubscriptionPlanId = 'weekly' | 'monthly' | 'quarterly' | 'pro' | 'vip';
 
 export type SubscriptionStatus = 'active' | 'pending' | 'expired' | 'cancelled' | 'failed';
 
@@ -7,6 +7,8 @@ export interface ISubscriptionPlan {
   name: string;
   priceINR: number;
   durationDays: number;
+  dailyCallsLimit: number;
+  badgeType: 'none' | 'pro' | 'vip';
   features: string[];
   popular?: boolean;
 }
@@ -26,6 +28,7 @@ export interface ICreditPackage {
   id: string;
   credits: number;
   priceINR: number;
+  callsCount?: number;
   popular?: boolean;
   bonus?: number;
 }

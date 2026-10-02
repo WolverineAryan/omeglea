@@ -1,8 +1,9 @@
 import { z } from 'zod';
 
 export const checkoutSubscriptionSchema = z.object({
-  planId: z.enum(['weekly', 'monthly', 'quarterly']),
+  planId: z.enum(['weekly', 'monthly', 'quarterly', 'pro', 'vip']),
   paymentMethod: z.string().default('mock_card'),
+  gateway: z.enum(['stripe', 'razorpay', 'auto']).optional(),
 });
 
 export type CheckoutSubscriptionInput = z.infer<typeof checkoutSubscriptionSchema>;

@@ -287,14 +287,18 @@ export default function ProfilePage() {
                 {profile?.age && (
                   <span className="text-lg font-bold text-purple-400">, {profile.age}</span>
                 )}
-                {user.isPremium ? (
-                  <Badge variant="premium" className="text-xs">
-                    <Sparkles className="h-3 w-3" /> PRO VIP
-                  </Badge>
+                {user.role === 'vip' ? (
+                  <span className="px-2.5 py-1 rounded-full bg-gradient-to-r from-amber-400 to-amber-600 text-black text-xs font-black flex items-center gap-1 shadow-md shadow-amber-500/20 uppercase tracking-wide">
+                    👑 VIP (500 Calls/Day)
+                  </span>
+                ) : user.role === 'premium' || user.isPremium ? (
+                  <span className="px-2.5 py-1 rounded-full bg-gradient-to-r from-purple-600 to-pink-500 text-white text-xs font-black flex items-center gap-1 shadow-md shadow-purple-500/20 uppercase tracking-wide">
+                    ⭐ PRO (100 Calls/Day)
+                  </span>
                 ) : (
-                  <Badge variant="secondary" className="text-xs">
-                    Free Member
-                  </Badge>
+                  <span className="px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 text-xs font-semibold border border-slate-700">
+                    Free Plan (10 Calls/Day)
+                  </span>
                 )}
                 <Badge variant="success" className="text-xs">
                   <CheckCircle className="h-3 w-3" /> 18+ Verified
@@ -312,11 +316,11 @@ export default function ProfilePage() {
                     <UserIcon className="h-3.5 w-3.5 text-pink-400" /> {profile.gender}
                   </span>
                 )}
-                <span className="flex items-center gap-1.5">
-                  <Coins className="h-3.5 w-3.5 text-amber-400" /> {user.creditBalance} Credits
+                <span className="flex items-center gap-1.5 text-amber-300 font-bold">
+                  <Coins className="h-3.5 w-3.5 text-amber-400" /> {user.creditBalance} Credits (₹{Math.round(user.creditBalance * 0.4)})
                 </span>
-                <span className="flex items-center gap-1.5">
-                  <Clock className="h-3.5 w-3.5 text-emerald-400" /> Active Now
+                <span className="flex items-center gap-1.5 text-emerald-400">
+                  <Video className="h-3.5 w-3.5" /> Calls Today: {user.dailyCallsUsed || 0}/{user.dailyCallsLimit || (user.role === 'vip' ? 500 : user.role === 'premium' || user.isPremium ? 100 : 10)}
                 </span>
               </div>
             </div>

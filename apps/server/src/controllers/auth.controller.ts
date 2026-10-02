@@ -8,17 +8,29 @@ import { sendVerificationEmail, sendPasswordResetEmail } from '../services/email
 import { RegisterInput, LoginInput, ForgotPasswordInput, ResetPasswordInput, IUser } from '@omeglea/shared';
 
 export function formatUserResponse(userDoc: any): IUser {
+  const today = new Date().toISOString().split('T')[0];
+  const isSameDay = userDoc.lastCallDate === today;
+  const dailyCallsUsed = isSameDay ? (userDoc.dailyCallsUsed || 0) : 0;
+  const isVip = userDoc.role === 'vip';
+  const isPro = userDoc.role === 'premium' || Boolean(userDoc.isPremium);
+  const dailyCallsLimit = isVip ? 500 : isPro ? 100 : 10;
+  const tier = isVip ? 'vip' : isPro ? 'pro' : 'free';
+
   return {
     id: userDoc._id.toString(),
     displayName: userDoc.displayName,
     email: userDoc.email,
     role: userDoc.role,
+    tier,
     accountStatus: userDoc.accountStatus,
     ageVerificationStatus: userDoc.ageVerificationStatus,
     dateOfBirth: userDoc.dateOfBirth?.toISOString(),
     emailVerified: userDoc.emailVerified,
     creditBalance: userDoc.creditBalance || 0,
-    isPremium: Boolean(userDoc.isPremium),
+    dailyCallsUsed,
+    dailyCallsLimit,
+    lastCallDate: userDoc.lastCallDate || today,
+    isPremium: isPro || isVip,
     createdAt: userDoc.createdAt?.toISOString() || new Date().toISOString(),
     updatedAt: userDoc.updatedAt?.toISOString() || new Date().toISOString(),
     lastActiveAt: userDoc.lastActiveAt?.toISOString() || new Date().toISOString(),

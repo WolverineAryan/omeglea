@@ -157,6 +157,9 @@ class MatchmakingService {
       UserProfile.findOne({ userId: bestMatch.userId }).lean(),
     ]);
 
+    const userATier = userADoc?.role === 'vip' ? 'vip' : (userADoc?.role === 'premium' || userADoc?.isPremium ? 'pro' : 'free');
+    const userBTier = userBDoc?.role === 'vip' ? 'vip' : (userBDoc?.role === 'premium' || userBDoc?.isPremium ? 'pro' : 'free');
+
     return {
       userA: currentEntry,
       userB: bestMatch,
@@ -167,6 +170,9 @@ class MatchmakingService {
         avatar: profileADoc?.avatar,
         interests: profileADoc?.interests || [],
         country: profileADoc?.country,
+        role: userADoc?.role || 'free',
+        tier: userATier,
+        isPremium: userATier !== 'free',
       },
       userBProfile: {
         id: bestMatch.userId,
@@ -174,6 +180,9 @@ class MatchmakingService {
         avatar: profileBDoc?.avatar,
         interests: profileBDoc?.interests || [],
         country: profileBDoc?.country,
+        role: userBDoc?.role || 'free',
+        tier: userBTier,
+        isPremium: userBTier !== 'free',
       },
     };
   }

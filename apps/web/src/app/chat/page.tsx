@@ -22,6 +22,8 @@ import {
   UserPlus,
   LogIn,
   Info,
+  Crown,
+  Coins,
 } from 'lucide-react';
 import { getSocket } from '../../lib/socket';
 import { useAuthStore } from '../../store/authStore';
@@ -95,6 +97,15 @@ export default function VideoChatPage() {
   const [reportCategory, setReportCategory] = useState<ReportCategory>('inappropriate_behavior');
   const [reportDescription, setReportDescription] = useState('');
   const [isBlockModalOpen, setIsBlockModalOpen] = useState(false);
+  const [isLimitModalOpen, setIsLimitModalOpen] = useState(false);
+  const [limitInfo, setLimitInfo] = useState<{
+    message: string;
+    dailyCallsUsed?: number;
+    dailyCallsLimit?: number;
+    creditBalance?: number;
+  }>({
+    message: '',
+  });
   const [socketConnected, setSocketConnected] = useState(false);
   const [activeQueueCount, setActiveQueueCount] = useState<number>(0);
 
@@ -382,10 +393,22 @@ export default function VideoChatPage() {
       }
     });
 
-    // Auth Required Error
-    socket.on('error', (err: { code: string; message: string }) => {
+    // Error Handler (Auth, Daily Quota Exceeded)
+    socket.on('error', (err: { code: string; message: string; dailyCallsUsed?: number; dailyCallsLimit?: number; creditBalance?: number }) => {
       if (err.code === 'AUTH_REQUIRED') {
         showToast('Login required for 18+ video chat', 'error');
+      } else if (err.code === 'DAILY_LIMIT_REACHED') {
+        setLimitInfo({
+          message: err.message,
+          dailyCallsUsed: err.dailyCallsUsed,
+          dailyCallsLimit: err.dailyCallsLimit,
+          creditBalance: err.creditBalance,
+        });
+        setIsLimitModalOpen(true);
+        setMatchState('idle');
+        showToast('Daily call quota reached.', 'error');
+      } else {
+        showToast(err.message || 'Matching error', 'error');
       }
     });
 
@@ -690,6 +713,23 @@ export default function VideoChatPage() {
         </div>
 
         <div className="flex items-center gap-2.5 shrink-0">
+          {/* User Tier & Daily Quota Pill */}
+          <Link
+            href="/pricing"
+            title="View limits and upgrade"
+            className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-purple-950/80 hover:bg-purple-900 border border-purple-500/30 text-[10px] font-bold text-purple-200 transition"
+          >
+            {user?.role === 'vip' ? (
+              <span className="text-amber-400">👑 VIP (500/day)</span>
+            ) : user?.role === 'premium' || user?.isPremium ? (
+              <span className="text-purple-300">⭐ PRO (100/day)</span>
+            ) : (
+              <span className="text-slate-300">Free (10/day)</span>
+            )}
+            <span className="text-slate-500">|</span>
+            <span className="text-amber-300">{user?.creditBalance || 0} 🪙</span>
+          </Link>
+
           <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-800/80 border border-slate-700/60 text-[10px] font-semibold text-slate-300">
             <span
               className={`h-2 w-2 rounded-full ${
@@ -718,10 +758,19 @@ export default function VideoChatPage() {
               className="w-full h-full object-cover video-mirror"
             />
 
-            {/* Overlay Status Pill */}
-            <div className="absolute top-3 left-3 px-2.5 py-1 rounded-lg bg-black/70 backdrop-blur-md border border-white/10 text-xs font-bold text-white flex items-center gap-2">
+            {/* Overlay Status Pill with Tier Badge */}
+            <div className="absolute top-3 left-3 px-2.5 py-1 rounded-lg bg-black/70 backdrop-blur-md border border-white/10 text-xs font-bold text-white flex items-center gap-1.5">
               <span className={`h-2 w-2 rounded-full ${isVideoEnabled ? 'bg-emerald-400' : 'bg-red-400'}`} />
-              You ({user?.displayName || 'Me'})
+              <span>You ({user?.displayName || 'Me'})</span>
+              {user?.role === 'vip' ? (
+                <span className="px-1.5 py-0.2 rounded bg-amber-500 text-black text-[9px] font-extrabold uppercase tracking-wide">
+                  VIP
+                </span>
+              ) : user?.role === 'premium' || user?.isPremium ? (
+                <span className="px-1.5 py-0.2 rounded bg-purple-600 text-white text-[9px] font-extrabold uppercase tracking-wide">
+                  PRO
+                </span>
+              ) : null}
             </div>
 
             {/* Local Cam Controls (Mute / Cam off) */}
@@ -799,9 +848,18 @@ export default function VideoChatPage() {
             {/* Overlay Stranger Info & Controls */}
             {matchState === 'connected' && (
               <>
-                <div className="absolute top-3 left-3 px-2.5 py-1 rounded-lg bg-black/70 backdrop-blur-md border border-white/10 text-xs font-bold text-pink-400 flex items-center gap-2">
+                <div className="absolute top-3 left-3 px-2.5 py-1 rounded-lg bg-black/70 backdrop-blur-md border border-white/10 text-xs font-bold text-pink-400 flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-pink-500 animate-pulse" />
-                  Stranger ({activeMatch?.peerDisplayName || 'User'})
+                  <span>Stranger ({activeMatch?.peerDisplayName || 'User'})</span>
+                  {(activeMatch as any)?.peerTier === 'vip' || (activeMatch as any)?.peerRole === 'vip' ? (
+                    <span className="px-1.5 py-0.2 rounded bg-amber-500 text-black text-[9px] font-extrabold uppercase tracking-wide">
+                      VIP
+                    </span>
+                  ) : (activeMatch as any)?.peerTier === 'pro' || (activeMatch as any)?.peerRole === 'premium' ? (
+                    <span className="px-1.5 py-0.2 rounded bg-purple-600 text-white text-[9px] font-extrabold uppercase tracking-wide">
+                      PRO
+                    </span>
+                  ) : null}
                 </div>
 
                 <div className="absolute top-3 right-3 flex items-center gap-1.5">
@@ -1022,6 +1080,52 @@ export default function VideoChatPage() {
             <Button variant="danger" size="md" onClick={handleConfirmBlock} className="flex-1 font-bold">
               Yes, Block &amp; Next
             </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Daily Call Quota / Out of Credits Modal */}
+      <Modal
+        isOpen={isLimitModalOpen}
+        onClose={() => setIsLimitModalOpen(false)}
+        title="Daily Call Limit Reached"
+      >
+        <div className="space-y-4 text-center">
+          <div className="h-14 w-14 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center mx-auto shadow-lg">
+            <Crown className="h-7 w-7" />
+          </div>
+
+          <div className="space-y-1.5">
+            <h3 className="text-base font-bold text-white">Need More Calls Today?</h3>
+            <p className="text-xs text-slate-300 leading-relaxed max-w-sm mx-auto">
+              {limitInfo.message || 'You have used your daily limit of calls. Upgrade to PRO/VIP or get instant credits to continue talking!'}
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-slate-950 border border-white/10 text-xs text-left space-y-2">
+            <div className="flex justify-between items-center text-slate-300">
+              <span>⭐ PRO Pass (100 calls/day + PRO badge):</span>
+              <strong className="text-purple-400">₹49 / mo</strong>
+            </div>
+            <div className="flex justify-between items-center text-slate-300">
+              <span>👑 VIP Pass (500 calls/day + VIP badge):</span>
+              <strong className="text-amber-400">₹99 / mo</strong>
+            </div>
+            <div className="flex justify-between items-center text-slate-300 border-t border-white/5 pt-1.5">
+              <span>⚡ Pay-As-You-Go Credits (1 call = 1 credit):</span>
+              <strong className="text-emerald-400">5 Credits for ₹2</strong>
+            </div>
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            <Button variant="secondary" size="md" onClick={() => setIsLimitModalOpen(false)} className="flex-1">
+              Close
+            </Button>
+            <Link href="/pricing" className="flex-1">
+              <Button variant="gradient" size="md" className="w-full font-bold">
+                Upgrade &amp; Refill
+              </Button>
+            </Link>
           </div>
         </div>
       </Modal>

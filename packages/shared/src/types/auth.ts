@@ -1,4 +1,4 @@
-export type UserRole = 'guest' | 'free' | 'premium' | 'moderator' | 'admin';
+export type UserRole = 'guest' | 'free' | 'premium' | 'vip' | 'moderator' | 'admin';
 
 export type AccountStatus = 'active' | 'suspended' | 'banned' | 'pending_verification';
 
@@ -9,11 +9,15 @@ export interface IUser {
   displayName: string;
   email: string;
   role: UserRole;
+  tier?: 'free' | 'pro' | 'vip';
   accountStatus: AccountStatus;
   ageVerificationStatus: AgeVerificationStatus;
   dateOfBirth?: string;
   emailVerified: boolean;
   creditBalance: number;
+  dailyCallsUsed: number;
+  dailyCallsLimit: number;
+  lastCallDate?: string;
   isPremium: boolean;
   createdAt: string;
   updatedAt: string;

@@ -22,49 +22,63 @@ export default function PricingPage() {
   const subscriptionPlans = [
     {
       id: 'weekly',
-      name: 'Weekly Pass',
-      price: 99,
+      name: 'Weekly Pro',
+      price: 19,
       duration: '7 Days',
+      badge: 'PRO',
+      badgeColor: 'from-blue-500 to-indigo-600',
+      dailyLimit: 100,
       features: [
-        '100% Ad-free experience',
-        'Interest-based matching priority',
-        'Unlimited video connections',
-        'PRO badge on profile',
+        '100 Video Calls Daily (vs 10 on Free)',
+        'PRO Verified Badge on Profile',
+        '100% Ad-Free Experience',
+        'Priority Matching Queue',
+        'Interest & Language Matching',
       ],
     },
     {
       id: 'monthly',
       name: 'Monthly Pro',
-      price: 199,
+      price: 49,
       duration: '30 Days',
       popular: true,
+      badge: 'PRO',
+      badgeColor: 'from-purple-600 to-pink-500',
+      dailyLimit: 100,
       features: [
-        '100% Ad-free experience',
-        'Interest & Language matching filters',
-        'Priority queue placement',
-        'PRO badge & glowing avatar border',
-        '100 bonus credits included',
+        '100 Video Calls Daily (vs 10 on Free)',
+        'PRO Badge & Glowing Border on Profile',
+        '100% Ad-Free Experience',
+        'Priority Matchmaking Queue',
+        'Interest & Language Matching',
+        '50 Bonus Credits Included',
       ],
     },
     {
       id: 'quarterly',
-      name: 'VIP 3-Month Pass',
-      price: 499,
-      duration: '90 Days (Save 16%)',
+      name: 'VIP Pass',
+      price: 99,
+      duration: '90 Days (Best Value)',
+      badge: 'VIP',
+      badgeColor: 'from-amber-400 to-amber-600',
+      dailyLimit: 500,
       features: [
-        'All Monthly Pro features',
-        'Country & Geo-preference matching',
-        'VIP status badge on profile',
-        'Highest matchmaking queue priority',
-        '300 bonus credits included',
+        '500 Video Calls Daily',
+        'VIP Crown Badge & Golden Profile Glow',
+        'Highest Queue Priority (Instant Connect)',
+        'Country & Geo Matching Filters Unlocked',
+        '100% Ad-Free Experience',
+        '150 Bonus Credits Included',
       ],
     },
   ];
 
   const creditPackages = [
-    { id: 'pkg_50', credits: 50, price: 49, bonus: 0 },
-    { id: 'pkg_150', credits: 150, price: 129, bonus: 20, popular: true },
-    { id: 'pkg_500', credits: 500, price: 399, bonus: 100 },
+    { id: 'pkg_5', credits: 5, price: 2, calls: 5, bonus: 0 },
+    { id: 'pkg_25', credits: 25, price: 10, calls: 25, bonus: 0 },
+    { id: 'pkg_50', credits: 50, price: 20, calls: 50, bonus: 0 },
+    { id: 'pkg_150', credits: 150, price: 50, calls: 175, bonus: 25, popular: true },
+    { id: 'pkg_500', credits: 500, price: 150, calls: 600, bonus: 100 },
   ];
 
   // Check for success URL params after redirect
@@ -202,16 +216,27 @@ export default function PricingPage() {
           Enjoy an ad-free experience, matching preferences, and priority queues.
         </p>
 
-        {/* Prototype simulation disclaimer */}
-        <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 text-xs text-purple-300">
-          💡 <strong>Prototype Test Mode:</strong> All transactions operate under simulation mode with ₹0 real money charged.
+        {/* Daily Call Limits & Credits Policy Notice */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-2xl bg-[#121A2D] border border-purple-500/20 text-xs text-slate-300 shadow-lg">
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-emerald-400 shrink-0" />
+            <span><strong>Free Tier:</strong> 10 Free Video Calls Daily</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-purple-400 shrink-0" />
+            <span><strong>PRO Tier:</strong> 100 Calls Daily + PRO Badge</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-amber-400 shrink-0" />
+            <span><strong>Pay As You Go:</strong> 5 Credits for ₹2 (1 Credit = 1 Call)</span>
+          </div>
         </div>
       </div>
 
       {/* Subscription Plans */}
       <div className="space-y-6">
         <h2 className="text-xl font-bold text-white flex items-center gap-2">
-          <Crown className="h-5 w-5 text-amber-400" /> Premium Subscription Plans
+          <Crown className="h-5 w-5 text-amber-400" /> Premium Subscription Plans (100–500 Calls/Day)
         </h2>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">

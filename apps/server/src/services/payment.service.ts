@@ -37,52 +37,88 @@ if (env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET) {
 export const SUBSCRIPTION_PLANS: Record<SubscriptionPlanId, ISubscriptionPlan> = {
   weekly: {
     id: 'weekly',
-    name: 'Weekly Pass',
-    priceINR: 99,
+    name: 'Weekly Pro',
+    priceINR: 19,
     durationDays: 7,
+    dailyCallsLimit: 100,
+    badgeType: 'pro',
     features: [
-      'Ad-free experience',
-      'Expanded matching preferences (Interests & Language)',
-      'Unlimited video chat connections',
-      'Premium profile badge',
-      'Priority matching queue',
+      '100 Video Calls Daily',
+      'PRO Badge on Profile',
+      '100% Ad-Free Experience',
+      'Priority Matching Queue',
+      'Interest & Language Matching',
     ],
   },
   monthly: {
     id: 'monthly',
     name: 'Monthly Pro',
-    priceINR: 199,
+    priceINR: 49,
     durationDays: 30,
-    features: [
-      'Ad-free experience',
-      'Expanded matching preferences (Interests & Language)',
-      'Unlimited video chat connections',
-      'Premium profile badge',
-      'Priority matching queue',
-      '100 bonus credits included',
-    ],
+    dailyCallsLimit: 100,
+    badgeType: 'pro',
     popular: true,
+    features: [
+      '100 Video Calls Daily',
+      'PRO Badge & Border on Profile',
+      '100% Ad-Free Experience',
+      'Priority Matchmaking Queue',
+      'Interest & Language Filters',
+      '50 Bonus Credits Included',
+    ],
   },
   quarterly: {
     id: 'quarterly',
-    name: 'Quarterly VIP',
-    priceINR: 499,
+    name: 'VIP Pass',
+    priceINR: 99,
     durationDays: 90,
+    dailyCallsLimit: 500,
+    badgeType: 'vip',
     features: [
-      'Ad-free experience',
-      'Expanded matching preferences (Interests, Language, Country)',
-      'Unlimited video chat connections',
-      'VIP badge & custom profile effects',
-      'Highest priority queue',
-      '300 bonus credits included',
+      '500 Video Calls Daily',
+      'VIP Crown Badge & Profile Glow',
+      'Highest Matchmaking Priority',
+      'Country & Geo Filter Matching',
+      '100% Ad-Free Experience',
+      '150 Bonus Credits Included',
+    ],
+  },
+  pro: {
+    id: 'pro',
+    name: 'Pro Pass (Monthly)',
+    priceINR: 49,
+    durationDays: 30,
+    dailyCallsLimit: 100,
+    badgeType: 'pro',
+    features: [
+      '100 Video Calls Daily',
+      'PRO Badge on Profile',
+      '100% Ad-Free Experience',
+      'Priority Matchmaking Queue',
+    ],
+  },
+  vip: {
+    id: 'vip',
+    name: 'VIP Pass (Monthly)',
+    priceINR: 99,
+    durationDays: 30,
+    dailyCallsLimit: 500,
+    badgeType: 'vip',
+    features: [
+      '500 Video Calls Daily',
+      'VIP Badge & Avatar Glow',
+      'Highest Priority Matchmaking',
+      'All Matching Filters Unlocked',
     ],
   },
 };
 
 export const CREDIT_PACKAGES: ICreditPackage[] = [
-  { id: 'pkg_50', credits: 50, priceINR: 49 },
-  { id: 'pkg_150', credits: 150, priceINR: 129, popular: true, bonus: 20 },
-  { id: 'pkg_500', credits: 500, priceINR: 399, bonus: 100 },
+  { id: 'pkg_5', credits: 5, priceINR: 2, callsCount: 5 },
+  { id: 'pkg_25', credits: 25, priceINR: 10, callsCount: 25 },
+  { id: 'pkg_50', credits: 50, priceINR: 20, callsCount: 50 },
+  { id: 'pkg_150', credits: 150, priceINR: 50, popular: true, bonus: 25, callsCount: 175 },
+  { id: 'pkg_500', credits: 500, priceINR: 150, bonus: 100, callsCount: 600 },
 ];
 
 // -------------------------------------------------------------
@@ -116,13 +152,15 @@ export async function fulfillSubscription(
   });
 
   let bonusCredits = 0;
-  if (planId === 'monthly') bonusCredits = 100;
-  if (planId === 'quarterly') bonusCredits = 300;
+  if (planId === 'monthly' || planId === 'pro') bonusCredits = 50;
+  if (planId === 'quarterly' || planId === 'vip') bonusCredits = 150;
+
+  const assignedRole = plan.badgeType === 'vip' ? 'vip' : 'premium';
 
   await User.findByIdAndUpdate(userId, {
     $set: {
       isPremium: true,
-      role: 'premium',
+      role: assignedRole,
       premiumExpiresAt: expiresAt,
     },
     $inc: { creditBalance: bonusCredits },
