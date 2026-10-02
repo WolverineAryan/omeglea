@@ -1,6 +1,12 @@
 import { io, Socket } from 'socket.io-client';
 import { ClientToServerEvents, ServerToClientEvents } from '@omeglea/shared';
-import { getCleanBackendUrl } from './api';
+
+const rawSocketUrl =
+  process.env.NEXT_PUBLIC_SOCKET_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  'http://localhost:4000';
+
+export const SOCKET_URL = rawSocketUrl.trim().replace(/\/api\/?$/, '').replace(/\/+$/, '');
 
 let socketInstance: Socket<ServerToClientEvents, ClientToServerEvents> | null = null;
 
@@ -11,10 +17,9 @@ function getStoredToken(): string {
 
 export function getSocket(): Socket<ServerToClientEvents, ClientToServerEvents> {
   const token = getStoredToken();
-  const currentUrl = getCleanBackendUrl();
 
   if (!socketInstance) {
-    socketInstance = io(currentUrl, {
+    socketInstance = io(SOCKET_URL, {
       auth: (cb) => {
         cb({ token: getStoredToken() });
       },
@@ -28,7 +33,7 @@ export function getSocket(): Socket<ServerToClientEvents, ClientToServerEvents> 
     });
 
     socketInstance.on('connect', () => {
-      console.log('🔌 Socket connected successfully to:', currentUrl);
+      console.log('🔌 Socket connected successfully');
     });
 
     socketInstance.on('disconnect', (reason) => {
@@ -39,7 +44,7 @@ export function getSocket(): Socket<ServerToClientEvents, ClientToServerEvents> 
     });
 
     socketInstance.on('connect_error', (err) => {
-      console.warn('🔌 Socket connection error to', currentUrl, ':', err.message);
+      console.warn('🔌 Socket connection error:', err.message);
     });
   } else {
     socketInstance.auth = { token };
@@ -54,18 +59,6 @@ export function updateSocketAuthToken(token: string): void {
   if (socket.connected) {
     socket.disconnect().connect();
   }
-}
-
-export function reconnectSocketWithUrl(newUrl: string): void {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem('omeglea_backend_url', newUrl);
-  }
-  if (socketInstance) {
-    socketInstance.disconnect();
-    socketInstance = null;
-  }
-  const newSocket = getSocket();
-  newSocket.connect();
 }
 
 export function disconnectSocket(): void {

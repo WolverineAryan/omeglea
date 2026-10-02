@@ -32,8 +32,7 @@ import { Card } from '../../components/ui/Card';
 import { Modal } from '../../components/ui/Modal';
 import { Badge } from '../../components/ui/Badge';
 import { formatTime } from '../../lib/utils';
-import { api, getCleanBackendUrl, updateApiBaseUrl } from '../../lib/api';
-import { reconnectSocketWithUrl } from '../../lib/socket';
+import { api } from '../../lib/api';
 import { IChatMessage, MatchFoundPayload, ReportCategory } from '@omeglea/shared';
 
 const ICE_SERVERS: RTCConfiguration = {
@@ -91,33 +90,13 @@ export default function VideoChatPage() {
   const [isTyping, setIsTyping] = useState(false);
   const [peerIsTyping, setPeerIsTyping] = useState(false);
 
-  // Modals & Diagnostics
+  // Modals & Safety
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [reportCategory, setReportCategory] = useState<ReportCategory>('inappropriate_behavior');
   const [reportDescription, setReportDescription] = useState('');
   const [isBlockModalOpen, setIsBlockModalOpen] = useState(false);
   const [socketConnected, setSocketConnected] = useState(false);
   const [activeQueueCount, setActiveQueueCount] = useState<number>(0);
-  const [isDiagnosticOpen, setIsDiagnosticOpen] = useState(false);
-  const [diagnosticResult, setDiagnosticResult] = useState<any>(null);
-  const [isPinging, setIsPinging] = useState(false);
-  const [backendUrlInput, setBackendUrlInput] = useState('');
-
-  useEffect(() => {
-    setBackendUrlInput(getCleanBackendUrl());
-  }, []);
-
-  const handleSaveBackendUrl = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!backendUrlInput.trim()) return;
-    const clean = backendUrlInput.trim().replace(/\/api\/?$/, '').replace(/\/+$/, '');
-    updateApiBaseUrl(clean);
-    reconnectSocketWithUrl(clean);
-    showToast(`Connecting to ${clean}...`, 'info');
-    setTimeout(() => {
-      handleRunDiagnostics();
-    }, 1500);
-  };
 
   // Call duration timer
   useEffect(() => {
@@ -404,85 +383,6 @@ export default function VideoChatPage() {
     showToast,
   ]);
 
-  // Run full system diagnostics test
-  const handleRunDiagnostics = async () => {
-    setIsPinging(true);
-    const startHttp = Date.now();
-    let httpOk = false;
-    let httpLatency = 0;
-    let httpData = null;
-
-    try {
-      const res = await api.get('/health');
-      httpLatency = Date.now() - startHttp;
-      httpOk = res.status === 200;
-      httpData = res.data;
-    } catch (e: any) {
-      httpLatency = Date.now() - startHttp;
-      httpData = { error: e.message };
-    }
-
-    const socket = getSocket();
-    const startSocket = Date.now();
-    let socketLatency = 0;
-    let socketData: any = null;
-
-    if (socket.connected) {
-      socket.emit('diagnostic:ping' as any, (response: any) => {
-        socketLatency = Date.now() - startSocket;
-        socketData = response;
-        setDiagnosticResult({
-          httpOk,
-          httpLatency,
-          httpData,
-          socketOk: true,
-          socketLatency,
-          socketData,
-          cameraReady: isCameraReady,
-          userId: user?.id,
-          userDisplayName: user?.displayName,
-          testedAt: new Date().toLocaleTimeString(),
-        });
-        setIsPinging(false);
-      });
-      // Fallback timeout in case callback isn't supported on old server build
-      setTimeout(() => {
-        setIsPinging((prev) => {
-          if (prev) {
-            setDiagnosticResult({
-              httpOk,
-              httpLatency,
-              httpData,
-              socketOk: socket.connected,
-              socketLatency: socket.connected ? Date.now() - startSocket : 0,
-              socketData: { socketId: socket.id, connected: socket.connected },
-              cameraReady: isCameraReady,
-              userId: user?.id,
-              userDisplayName: user?.displayName,
-              testedAt: new Date().toLocaleTimeString(),
-            });
-            return false;
-          }
-          return false;
-        });
-      }, 2000);
-    } else {
-      setDiagnosticResult({
-        httpOk,
-        httpLatency,
-        httpData,
-        socketOk: false,
-        socketLatency: 0,
-        socketData: { error: 'Socket is not connected' },
-        cameraReady: isCameraReady,
-        userId: user?.id,
-        userDisplayName: user?.displayName,
-        testedAt: new Date().toLocaleTimeString(),
-      });
-      setIsPinging(false);
-    }
-  };
-
   // Initial media setup on mount
   useEffect(() => {
     if (user) {
@@ -751,21 +651,14 @@ export default function VideoChatPage() {
         </div>
 
         <div className="flex items-center gap-2.5 shrink-0">
-          <button
-            onClick={() => {
-              setIsDiagnosticOpen(true);
-              handleRunDiagnostics();
-            }}
-            title="Click to check connection health & server status"
-            className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[10px] font-semibold text-slate-300 transition"
-          >
+          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-800/80 border border-slate-700/60 text-[10px] font-semibold text-slate-300">
             <span
               className={`h-2 w-2 rounded-full ${
                 socketConnected ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'
               }`}
             />
-            <span>{socketConnected ? 'Server Connected' : 'Connecting to Server...'}</span>
-          </button>
+            <span>{socketConnected ? 'Online' : 'Connecting...'}</span>
+          </div>
 
           <Link href="/safety" className="text-purple-400 hover:underline text-[11px]">
             Safety Center →
@@ -1089,111 +982,6 @@ export default function VideoChatPage() {
             </Button>
             <Button variant="danger" size="md" onClick={handleConfirmBlock} className="flex-1 font-bold">
               Yes, Block &amp; Next
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Live System & Network Diagnostics Modal */}
-      <Modal
-        isOpen={isDiagnosticOpen}
-        onClose={() => setIsDiagnosticOpen(false)}
-        title="Live Server & Connection Diagnostics"
-      >
-        <div className="space-y-4 text-xs">
-          <p className="text-slate-300">
-            Use this panel to verify real-time connectivity between your device, the Render WebSocket server, and WebRTC media streams.
-          </p>
-
-          <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
-            <div className="flex justify-between items-center pb-2 border-b border-slate-800">
-              <span className="text-slate-400">WebSocket Socket.IO:</span>
-              <span className={`font-bold flex items-center gap-1.5 ${socketConnected ? 'text-emerald-400' : 'text-rose-400'}`}>
-                <span className={`h-2 w-2 rounded-full ${socketConnected ? 'bg-emerald-400' : 'bg-rose-500'}`} />
-                {socketConnected ? 'Connected & Ready' : 'Disconnected / Reconnecting'}
-              </span>
-            </div>
-
-            <div className="flex justify-between items-center pb-2 border-b border-slate-800">
-              <span className="text-slate-400">Authenticated As:</span>
-              <span className="font-semibold text-white">
-                {user?.displayName ? `${user.displayName} (18+ Verified)` : 'Not Logged In'}
-              </span>
-            </div>
-
-            <div className="flex justify-between items-center pb-2 border-b border-slate-800">
-              <span className="text-slate-400">Local Camera &amp; Mic:</span>
-              <span className={`font-bold ${isCameraReady ? 'text-emerald-400' : 'text-amber-400'}`}>
-                {isCameraReady ? 'Access Granted' : 'Waiting for Permission'}
-              </span>
-            </div>
-
-            <div className="flex justify-between items-center">
-              <span className="text-slate-400">Active Match State:</span>
-              <span className="font-mono text-purple-400 font-semibold uppercase">{matchState}</span>
-            </div>
-          </div>
-
-          {diagnosticResult && (
-            <div className="p-3 rounded-xl bg-purple-950/30 border border-purple-500/20 space-y-1.5 text-[11px]">
-              <div className="flex justify-between">
-                <span className="text-slate-400">HTTP API Latency:</span>
-                <span className="font-mono text-white">{diagnosticResult.httpLatency}ms {diagnosticResult.httpOk ? '✅' : '❌'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Socket Latency:</span>
-                <span className="font-mono text-white">{diagnosticResult.socketLatency}ms {diagnosticResult.socketOk ? '✅' : '❌'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Matchmaking Queue Size:</span>
-                <span className="font-mono text-emerald-400">{diagnosticResult.socketData?.queueSize ?? activeQueueCount} user(s) waiting</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Last Ping Tested:</span>
-                <span className="text-slate-300">{diagnosticResult.testedAt}</span>
-              </div>
-            </div>
-          )}
-
-          {/* Backend Server URL Config Form */}
-          <form onSubmit={handleSaveBackendUrl} className="p-3 rounded-xl bg-slate-900/90 border border-white/10 space-y-2">
-            <label className="text-[11px] font-semibold text-slate-300 block">
-              Backend Server URL (Render / Production / Local)
-            </label>
-            <div className="flex gap-1.5">
-              <input
-                type="text"
-                value={backendUrlInput}
-                onChange={(e) => setBackendUrlInput(e.target.value)}
-                placeholder="https://your-server.onrender.com"
-                className="flex-1 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
-              />
-              <Button type="submit" variant="gradient" size="sm" className="px-3 text-xs">
-                Save &amp; Connect
-              </Button>
-            </div>
-            <p className="text-[10px] text-slate-500">
-              Enter your live Render backend URL if your Vercel deployment has a typo or DNS issue.
-            </p>
-          </form>
-
-          <div className="flex gap-2 pt-2">
-            <Button
-              variant="secondary"
-              size="md"
-              onClick={handleRunDiagnostics}
-              isLoading={isPinging}
-              className="flex-1"
-            >
-              Run Test Again
-            </Button>
-            <Button
-              variant="gradient"
-              size="md"
-              onClick={() => setIsDiagnosticOpen(false)}
-              className="flex-1 font-bold"
-            >
-              Done
             </Button>
           </div>
         </div>
