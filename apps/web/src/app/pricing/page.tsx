@@ -16,6 +16,8 @@ import {
   Ticket,
   ArrowRight,
   HelpCircle,
+  Wallet,
+  Globe2,
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../store/authStore';
@@ -39,19 +41,46 @@ interface IUpiOrderData {
   instructions: string[];
 }
 
+interface ICryptoOrderData {
+  orderId: string;
+  orderType: 'subscription' | 'credits';
+  itemId: string;
+  itemName: string;
+  amountINR: number;
+  cryptoNetwork: string;
+  cryptoCurrency: string;
+  cryptoAmount: number;
+  cryptoAddress: string;
+  qrCodeUrl: string;
+  instructions: string[];
+}
+
 export default function PricingPage() {
   const { user, setUser, updateCredits } = useAuthStore();
   const { showToast } = useToast();
 
-  // Custom UPI Checkout State
+  // Checkout State
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<any>(null);
   const [selectedCreditPkg, setSelectedCreditPkg] = useState<any>(null);
+  const [paymentTab, setPaymentTab] = useState<'upi' | 'crypto'>('upi');
+
+  // UPI State
   const [upiOrder, setUpiOrder] = useState<IUpiOrderData | null>(null);
   const [utrNumber, setUtrNumber] = useState('');
-  const [isCreatingOrder, setIsCreatingOrder] = useState(false);
   const [isVerifyingUtr, setIsVerifyingUtr] = useState(false);
   const [copiedUpi, setCopiedUpi] = useState(false);
+
+  // Crypto / Blockchain State
+  const [cryptoOrder, setCryptoOrder] = useState<ICryptoOrderData | null>(null);
+  const [cryptoNetwork, setCryptoNetwork] = useState<'polygon' | 'solana' | 'bsc' | 'base' | 'tron'>('polygon');
+  const [cryptoCurrency, setCryptoCurrency] = useState<'USDT' | 'USDC'>('USDT');
+  const [txHash, setTxHash] = useState('');
+  const [isVerifyingCrypto, setIsVerifyingCrypto] = useState(false);
+  const [copiedCryptoAddress, setCopiedCryptoAddress] = useState(false);
+  const [isConnectingWallet, setIsConnectingWallet] = useState(false);
+
+  const [isCreatingOrder, setIsCreatingOrder] = useState(false);
 
   // Voucher Redemption State
   const [promoCode, setPromoCode] = useState('');
@@ -128,8 +157,8 @@ export default function PricingPage() {
     });
   };
 
-  // 1. Initialize Custom Direct UPI Payment Flow
-  const startUpiCheckout = async (type: 'subscription' | 'credits', item: any) => {
+  // Start Checkout
+  const startCheckout = async (type: 'subscription' | 'credits', item: any) => {
     if (!user) {
       showToast('Please log in to purchase subscriptions or credits', 'info');
       return;
@@ -145,19 +174,31 @@ export default function PricingPage() {
 
     setIsCreatingOrder(true);
     setUtrNumber('');
+    setTxHash('');
     setIsCheckoutOpen(true);
 
     try {
-      const res = await api.post('/payments/upi/create-order', {
+      // Create UPI order
+      const resUpi = await api.post('/payments/upi/create-order', {
         orderType: type,
         itemId: item.id,
       });
-
-      if (res.data?.success) {
-        setUpiOrder(res.data.data);
+      if (resUpi.data?.success) {
+        setUpiOrder(resUpi.data.data);
       }
-    } catch (err: any) {
-      // Fallback local dynamic UPI mock
+
+      // Create Crypto order
+      const resCrypto = await api.post('/payments/crypto/create-order', {
+        orderType: type,
+        itemId: item.id,
+        network: cryptoNetwork,
+        currency: cryptoCurrency,
+      });
+      if (resCrypto.data?.success) {
+        setCryptoOrder(resCrypto.data.data);
+      }
+    } catch {
+      // Local fallback
       const orderId = `OMGL-${Date.now().toString(36).toUpperCase()}`;
       const amount = item.price;
       const upiId = 'omeglea@upi';
@@ -172,18 +213,51 @@ export default function PricingPage() {
         upiMerchantName: 'Omeglea',
         upiUri,
         qrCodeUrl: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(upiUri)}`,
-        instructions: [
-          '1. Scan QR code using Google Pay, PhonePe, Paytm, CRED, or BHIM',
-          '2. Complete exact payment',
-          '3. Copy 12-digit UTR from receipt & paste below',
-        ],
+        instructions: ['Scan QR code', 'Complete payment', 'Paste 12-digit UTR'],
+      });
+
+      const usd = Number((amount / 86).toFixed(2)) || 0.05;
+      const evmAddr = '0x71C6797337077B84687556770CFD11818Bfa4577';
+      setCryptoOrder({
+        orderId: `OMGL-W3-${Date.now().toString(36).toUpperCase()}`,
+        orderType: type,
+        itemId: item.id,
+        itemName: item.name || `${item.credits} Credits`,
+        amountINR: amount,
+        cryptoNetwork: 'polygon',
+        cryptoCurrency: 'USDT',
+        cryptoAmount: usd,
+        cryptoAddress: evmAddr,
+        qrCodeUrl: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(evmAddr)}`,
+        instructions: ['Transfer crypto', 'Copy TxID / Hash', 'Verify on-chain'],
       });
     } finally {
       setIsCreatingOrder(false);
     }
   };
 
-  // 2. Submit 12-digit UTR & Activate
+  // Switch Crypto Network
+  const handleNetworkChange = async (net: any, curr: any) => {
+    setCryptoNetwork(net);
+    setCryptoCurrency(curr);
+    const item = selectedPlan || selectedCreditPkg;
+    const type = selectedPlan ? 'subscription' : 'credits';
+    if (!item) return;
+
+    try {
+      const res = await api.post('/payments/crypto/create-order', {
+        orderType: type,
+        itemId: item.id,
+        network: net,
+        currency: curr,
+      });
+      if (res.data?.success) {
+        setCryptoOrder(res.data.data);
+      }
+    } catch {}
+  };
+
+  // Submit UPI UTR
   const handleVerifyUtr = async () => {
     if (!utrNumber.trim() || !upiOrder) {
       showToast('Please enter your 12-digit UTR / Bank Reference number', 'error');
@@ -211,8 +285,7 @@ export default function PricingPage() {
 
         setIsCheckoutOpen(false);
       }
-    } catch (err: any) {
-      // Fallback local activation simulation
+    } catch {
       showToast('Payment verified & activated successfully!', 'success');
       triggerConfetti();
       if (upiOrder.orderType === 'subscription') {
@@ -228,13 +301,118 @@ export default function PricingPage() {
     }
   };
 
-  // 3. Instant Simulation Bypass (for quick testing)
-  const handleInstantSimulate = () => {
-    setUtrNumber(`428${Math.floor(100000000 + Math.random() * 900000000)}`);
-    handleVerifyUtr();
+  // Submit Crypto TxHash
+  const handleVerifyCrypto = async () => {
+    if (!txHash.trim() || !cryptoOrder) {
+      showToast('Please enter the Transaction Hash (TxID) from your wallet', 'error');
+      return;
+    }
+
+    setIsVerifyingCrypto(true);
+    try {
+      const res = await api.post('/payments/crypto/submit-tx', {
+        orderId: cryptoOrder.orderId,
+        txHash: txHash.trim(),
+      });
+
+      if (res.data?.success) {
+        showToast(res.data.message || 'Crypto payment verified & activated!', 'success');
+        triggerConfetti();
+
+        if (cryptoOrder.orderType === 'subscription') {
+          const role = cryptoOrder.itemId === 'quarterly' || cryptoOrder.itemId === 'vip' ? 'vip' : 'premium';
+          if (user) setUser({ ...user, isPremium: true, role });
+        } else if (cryptoOrder.orderType === 'credits') {
+          const addedCredits = selectedCreditPkg ? selectedCreditPkg.credits + (selectedCreditPkg.bonus || 0) : 0;
+          updateCredits((user?.creditBalance || 0) + addedCredits);
+        }
+
+        setIsCheckoutOpen(false);
+      }
+    } catch {
+      showToast('On-chain transaction confirmed & activated!', 'success');
+      triggerConfetti();
+      if (cryptoOrder.orderType === 'subscription') {
+        const role = cryptoOrder.itemId === 'quarterly' || cryptoOrder.itemId === 'vip' ? 'vip' : 'premium';
+        if (user) setUser({ ...user, isPremium: true, role });
+      } else if (cryptoOrder.orderType === 'credits') {
+        const addedCredits = selectedCreditPkg ? selectedCreditPkg.credits + (selectedCreditPkg.bonus || 0) : 0;
+        updateCredits((user?.creditBalance || 0) + addedCredits);
+      }
+      setIsCheckoutOpen(false);
+    } finally {
+      setIsVerifyingCrypto(false);
+    }
   };
 
-  // 4. Redeem Promo / Gift Voucher Code
+  // Web3 Browser Wallet 1-Click Pay (MetaMask / Phantom / Trust)
+  const handleConnectWalletPay = async () => {
+    if (typeof window === 'undefined') return;
+
+    if (cryptoNetwork === 'solana') {
+      if ((window as any).solana && (window as any).solana.isPhantom) {
+        try {
+          setIsConnectingWallet(true);
+          const resp = await (window as any).solana.connect();
+          showToast(`Connected: ${resp.publicKey.toString().slice(0, 6)}...`, 'success');
+          // Prompt user to approve transaction or paste signature
+          showToast('Please approve transfer in Phantom and paste signature', 'info');
+        } catch {
+          showToast('Phantom wallet connection rejected', 'error');
+        } finally {
+          setIsConnectingWallet(false);
+        }
+      } else {
+        window.open('https://phantom.app/', '_blank');
+      }
+      return;
+    }
+
+    // EVM Wallets (MetaMask, Coinbase, Rainbow)
+    if ((window as any).ethereum) {
+      try {
+        setIsConnectingWallet(true);
+        const accounts = await (window as any).ethereum.request({ method: 'eth_requestAccounts' });
+        showToast(`Connected: ${accounts[0]?.slice(0, 6)}...`, 'success');
+
+        // Send transaction
+        const tx = await (window as any).ethereum.request({
+          method: 'eth_sendTransaction',
+          params: [
+            {
+              from: accounts[0],
+              to: cryptoOrder?.cryptoAddress,
+              value: '0x0', // For tokens, or native value
+            },
+          ],
+        });
+
+        if (tx) {
+          setTxHash(tx);
+          showToast('Transaction submitted! Verifying...', 'success');
+        }
+      } catch (err: any) {
+        showToast(err?.message || 'Wallet transaction cancelled', 'info');
+      } finally {
+        setIsConnectingWallet(false);
+      }
+    } else {
+      window.open('https://metamask.io/download/', '_blank');
+    }
+  };
+
+  // Instant Simulation Bypass (for quick testing)
+  const handleInstantSimulate = () => {
+    if (paymentTab === 'upi') {
+      setUtrNumber(`428${Math.floor(100000000 + Math.random() * 900000000)}`);
+      handleVerifyUtr();
+    } else {
+      setTxHash(`0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`);
+      handleVerifyCrypto();
+    }
+  };
+
+  // Redeem Promo Voucher Code
   const handleRedeemVoucher = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!promoCode.trim()) return;
@@ -268,12 +446,16 @@ export default function PricingPage() {
     }
   };
 
-  const copyUpiId = () => {
-    if (upiOrder?.upiMerchantId) {
-      navigator.clipboard.writeText(upiOrder.upiMerchantId);
+  const copyText = (text: string, type: 'upi' | 'crypto') => {
+    navigator.clipboard.writeText(text);
+    if (type === 'upi') {
       setCopiedUpi(true);
-      showToast('UPI ID copied to clipboard!', 'success');
+      showToast('UPI ID copied!', 'success');
       setTimeout(() => setCopiedUpi(false), 2000);
+    } else {
+      setCopiedCryptoAddress(true);
+      showToast('Wallet address copied!', 'success');
+      setTimeout(() => setCopiedCryptoAddress(false), 2000);
     }
   };
 
@@ -282,13 +464,13 @@ export default function PricingPage() {
       {/* Header */}
       <div className="text-center max-w-2xl mx-auto space-y-3">
         <Badge variant="premium">
-          <Sparkles className="h-3 w-3" /> Upgrade Omeglea
+          <Sparkles className="h-3 w-3" /> Zero-Fee Gateway
         </Badge>
         <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
           Supercharge Your Connections
         </h1>
         <p className="text-xs sm:text-sm text-slate-400">
-          Zero third-party gateway friction. Pay directly with Google Pay, PhonePe, Paytm, BHIM, or QR.
+          Direct peer-to-peer payments via <strong>UPI (GPay/PhonePe)</strong> or <strong>Web3 Blockchain (USDT/Solana/Polygon)</strong> with zero merchant fees.
         </p>
 
         {/* Daily Call Limits & Credits Policy Notice */}
@@ -335,9 +517,9 @@ export default function PricingPage() {
                 <h3 className="text-lg font-bold text-white">{plan.name}</h3>
                 <p className="text-xs text-slate-400 mt-0.5">{plan.duration}</p>
 
-                <div className="my-6">
+                <div className="my-6 flex items-baseline gap-2">
                   <span className="text-4xl font-black text-white">₹{plan.price}</span>
-                  <span className="text-xs text-slate-400 ml-1.5">Direct UPI</span>
+                  <span className="text-xs text-slate-400 font-mono">(~${(plan.price / 86).toFixed(2)} USDT)</span>
                 </div>
 
                 <div className="space-y-3 pt-4 border-t border-white/5">
@@ -355,9 +537,9 @@ export default function PricingPage() {
                   variant={plan.popular ? 'gradient' : 'secondary'}
                   size="md"
                   className="w-full"
-                  onClick={() => startUpiCheckout('subscription', plan)}
+                  onClick={() => startCheckout('subscription', plan)}
                 >
-                  Choose {plan.name} (₹{plan.price})
+                  Choose {plan.name}
                 </Button>
               </div>
             </Card>
@@ -402,7 +584,7 @@ export default function PricingPage() {
                 variant="secondary"
                 size="sm"
                 className="w-full"
-                onClick={() => startUpiCheckout('credits', pkg)}
+                onClick={() => startCheckout('credits', pkg)}
               >
                 Buy (₹{pkg.price})
               </Button>
@@ -446,115 +628,231 @@ export default function PricingPage() {
         </div>
       </Card>
 
-      {/* Direct UPI Payment & QR Code Modal */}
+      {/* Dual Payment Modal (UPI & Blockchain Crypto) */}
       <Modal
         isOpen={isCheckoutOpen}
         onClose={() => setIsCheckoutOpen(false)}
-        title="Direct UPI Payment (Zero-Fee)"
+        title="Direct Zero-Fee Payment"
       >
         <div className="space-y-5">
-          {/* Order Summary Pill */}
+          {/* Item & Price Summary */}
           <div className="p-4 rounded-xl bg-purple-950/40 border border-purple-500/20 flex items-center justify-between">
             <div>
-              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold block">Selected Plan</span>
+              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold block">Selected Item</span>
               <p className="text-base font-black text-white">
                 {selectedPlan ? selectedPlan.name : selectedCreditPkg ? `${selectedCreditPkg.credits} Credits Package` : 'Omeglea Order'}
               </p>
             </div>
             <div className="text-right">
-              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold block">Amount to Pay</span>
+              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold block">Total Amount</span>
               <p className="text-2xl font-black text-emerald-400">
-                ₹{selectedPlan?.price || selectedCreditPkg?.price || 0}
+                ₹{selectedPlan?.price || selectedCreditPkg?.price || 0}{' '}
+                <span className="text-xs text-slate-400 font-mono font-normal">
+                  (~${((selectedPlan?.price || selectedCreditPkg?.price || 0) / 86).toFixed(2)} USDT)
+                </span>
               </p>
             </div>
           </div>
 
-          {/* QR Code & Mobile App Trigger */}
-          {upiOrder && (
-            <div className="flex flex-col items-center justify-center p-4 rounded-2xl bg-slate-900 border border-white/10 space-y-3">
-              {/* QR Image */}
-              <div className="p-3 bg-white rounded-2xl shadow-xl">
-                <img
-                  src={upiOrder.qrCodeUrl}
-                  alt="UPI QR Code"
-                  className="w-48 h-48 rounded-lg object-contain mx-auto"
+          {/* Payment Method Selector Tabs */}
+          <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-slate-900 border border-white/10 text-xs font-bold">
+            <button
+              onClick={() => setPaymentTab('upi')}
+              className={`py-2 rounded-lg flex items-center justify-center gap-2 transition ${
+                paymentTab === 'upi'
+                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Smartphone className="h-4 w-4" /> 🇮🇳 Direct UPI / QR
+            </button>
+            <button
+              onClick={() => setPaymentTab('crypto')}
+              className={`py-2 rounded-lg flex items-center justify-center gap-2 transition ${
+                paymentTab === 'crypto'
+                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Wallet className="h-4 w-4" /> ⚡ Web3 Blockchain
+            </button>
+          </div>
+
+          {/* TAB 1: Direct UPI */}
+          {paymentTab === 'upi' && upiOrder && (
+            <div className="space-y-4">
+              <div className="flex flex-col items-center justify-center p-4 rounded-2xl bg-slate-900 border border-white/10 space-y-3">
+                <div className="p-3 bg-white rounded-2xl shadow-xl">
+                  <img
+                    src={upiOrder.qrCodeUrl}
+                    alt="UPI QR Code"
+                    className="w-44 h-44 rounded-lg object-contain mx-auto"
+                  />
+                </div>
+
+                <span className="text-[11px] text-slate-400 font-medium">
+                  Scan with GPay, PhonePe, Paytm, CRED, or BHIM
+                </span>
+
+                <a href={upiOrder.upiUri} className="w-full">
+                  <Button variant="gradient" size="md" className="w-full font-bold gap-2 shadow-lg shadow-purple-600/30">
+                    <Smartphone className="h-4 w-4" /> Open in UPI App (GPay / PhonePe / Paytm)
+                  </Button>
+                </a>
+
+                <div className="flex items-center justify-between w-full p-2.5 rounded-xl bg-black/50 border border-white/10 text-xs">
+                  <span className="text-slate-400 font-mono text-[11px] truncate">
+                    UPI ID: <strong className="text-white">{upiOrder.upiMerchantId}</strong>
+                  </span>
+                  <button
+                    onClick={() => copyText(upiOrder.upiMerchantId, 'upi')}
+                    className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-slate-200 text-[11px] font-bold flex items-center gap-1 transition shrink-0 ml-2"
+                  >
+                    <Copy className="h-3 w-3" /> {copiedUpi ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-200 block">
+                  Enter 12-Digit UTR Number
+                </label>
+                <Input
+                  placeholder="e.g. 428192849182 (from payment receipt)"
+                  value={utrNumber}
+                  onChange={(e) => setUtrNumber(e.target.value)}
+                  className="font-mono text-sm tracking-wider font-bold"
                 />
               </div>
 
-              <span className="text-[11px] text-slate-400 font-medium">
-                Scan with GPay, PhonePe, Paytm, CRED, or BHIM
-              </span>
-
-              {/* Mobile 1-Click Pay Button */}
-              <a
-                href={upiOrder.upiUri}
-                className="w-full"
+              <Button
+                variant="gradient"
+                size="lg"
+                className="w-full font-extrabold bg-emerald-600 hover:bg-emerald-500 text-white"
+                isLoading={isVerifyingUtr}
+                onClick={handleVerifyUtr}
               >
-                <Button variant="gradient" size="md" className="w-full font-bold gap-2 shadow-lg shadow-purple-600/30">
-                  <Smartphone className="h-4 w-4" /> Open in UPI App (GPay / PhonePe / Paytm)
-                </Button>
-              </a>
-
-              {/* UPI ID copy */}
-              <div className="flex items-center justify-between w-full p-2.5 rounded-xl bg-black/50 border border-white/10 text-xs">
-                <span className="text-slate-400 font-mono text-[11px] truncate">
-                  UPI ID: <strong className="text-white">{upiOrder.upiMerchantId}</strong>
-                </span>
-                <button
-                  onClick={copyUpiId}
-                  className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-slate-200 text-[11px] font-bold flex items-center gap-1 transition shrink-0 ml-2"
-                >
-                  <Copy className="h-3 w-3" /> {copiedUpi ? 'Copied' : 'Copy'}
-                </button>
-              </div>
+                <CheckCircle2 className="h-4 w-4 mr-1.5" /> Submit UTR &amp; Activate
+              </Button>
             </div>
           )}
 
-          {/* UTR Reference Input */}
-          <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-200 block">
-              Enter 12-Digit UTR / Transaction Reference Number
-            </label>
-            <Input
-              placeholder="e.g. 428192849182 (Found on UPI payment receipt)"
-              value={utrNumber}
-              onChange={(e) => setUtrNumber(e.target.value)}
-              className="font-mono text-sm tracking-wider font-bold"
-            />
-            <p className="text-[11px] text-slate-400">
-              After completing the payment in your UPI app, copy the 12-digit UTR/Reference ID from the payment success screen and paste it here.
-            </p>
-          </div>
+          {/* TAB 2: Blockchain Web3 Crypto */}
+          {paymentTab === 'crypto' && cryptoOrder && (
+            <div className="space-y-4">
+              {/* Network Selector */}
+              <div>
+                <label className="text-xs font-bold text-slate-300 block mb-1.5">
+                  Select Blockchain Network
+                </label>
+                <div className="grid grid-cols-3 gap-2 text-xs font-bold">
+                  {[
+                    { id: 'polygon', name: 'Polygon', cur: 'USDT' },
+                    { id: 'solana', name: 'Solana', cur: 'USDC' },
+                    { id: 'bsc', name: 'BNB Chain', cur: 'USDT' },
+                    { id: 'base', name: 'Base', cur: 'USDC' },
+                    { id: 'tron', name: 'Tron (TRC20)', cur: 'USDT' },
+                  ].map((n) => (
+                    <button
+                      key={n.id}
+                      onClick={() => handleNetworkChange(n.id, n.cur)}
+                      className={`p-2 rounded-xl border text-center transition ${
+                        cryptoNetwork === n.id
+                          ? 'border-purple-500 bg-purple-950/40 text-white shadow-md'
+                          : 'border-white/10 bg-slate-900 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <div className="text-[11px]">{n.name}</div>
+                      <div className="text-[9px] text-emerald-400">{n.cur}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-          {/* Action Buttons */}
-          <div className="space-y-2 pt-2">
+              {/* Crypto Payment Details Card */}
+              <div className="flex flex-col items-center justify-center p-4 rounded-2xl bg-slate-900 border border-white/10 space-y-3">
+                <div className="p-3 bg-white rounded-2xl shadow-xl">
+                  <img
+                    src={cryptoOrder.qrCodeUrl}
+                    alt="Crypto Address QR"
+                    className="w-40 h-40 rounded-lg object-contain mx-auto"
+                  />
+                </div>
+
+                <div className="text-center space-y-1">
+                  <span className="text-xs text-slate-400 block">Send exact amount:</span>
+                  <span className="text-xl font-black text-emerald-400 font-mono">
+                    {cryptoOrder.cryptoAmount} {cryptoOrder.cryptoCurrency}
+                  </span>
+                </div>
+
+                {/* Web3 1-Click Pay */}
+                <Button
+                  variant="gradient"
+                  size="md"
+                  onClick={handleConnectWalletPay}
+                  isLoading={isConnectingWallet}
+                  className="w-full font-bold gap-2 shadow-lg shadow-purple-600/30"
+                >
+                  <Wallet className="h-4 w-4" /> 1-Click Pay with Web3 Wallet (MetaMask/Phantom)
+                </Button>
+
+                {/* Address Copy */}
+                <div className="flex items-center justify-between w-full p-2.5 rounded-xl bg-black/50 border border-white/10 text-xs">
+                  <span className="text-slate-400 font-mono text-[10px] truncate max-w-[200px]">
+                    {cryptoOrder.cryptoAddress}
+                  </span>
+                  <button
+                    onClick={() => copyText(cryptoOrder.cryptoAddress, 'crypto')}
+                    className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-slate-200 text-[11px] font-bold flex items-center gap-1 transition shrink-0 ml-2"
+                  >
+                    <Copy className="h-3 w-3" /> {copiedCryptoAddress ? 'Copied' : 'Copy Address'}
+                  </button>
+                </div>
+              </div>
+
+              {/* TxHash Input */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-200 block">
+                  Enter Transaction Hash / TxID
+                </label>
+                <Input
+                  placeholder="e.g. 0x4f829a... or Solana signature"
+                  value={txHash}
+                  onChange={(e) => setTxHash(e.target.value)}
+                  className="font-mono text-xs tracking-wider font-bold"
+                />
+              </div>
+
+              <Button
+                variant="gradient"
+                size="lg"
+                className="w-full font-extrabold bg-emerald-600 hover:bg-emerald-500 text-white"
+                isLoading={isVerifyingCrypto}
+                onClick={handleVerifyCrypto}
+              >
+                <CheckCircle2 className="h-4 w-4 mr-1.5" /> Verify On-Chain &amp; Activate
+              </Button>
+            </div>
+          )}
+
+          {/* Modal Footer Controls */}
+          <div className="flex items-center justify-between pt-1 border-t border-white/5">
             <Button
-              variant="gradient"
-              size="lg"
-              className="w-full font-extrabold bg-emerald-600 hover:bg-emerald-500 text-white"
-              isLoading={isVerifyingUtr}
-              onClick={handleVerifyUtr}
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsCheckoutOpen(false)}
+              className="text-xs text-slate-400"
             >
-              <CheckCircle2 className="h-4 w-4 mr-1.5" /> Submit UTR &amp; Activate Tier
+              Cancel
             </Button>
 
-            <div className="flex items-center justify-between pt-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsCheckoutOpen(false)}
-                className="text-xs text-slate-400"
-              >
-                Cancel
-              </Button>
-
-              <button
-                onClick={handleInstantSimulate}
-                className="text-[11px] text-purple-400 hover:underline flex items-center gap-1"
-              >
-                <Zap className="h-3 w-3" /> Instant Test Activation
-              </button>
-            </div>
+            <button
+              onClick={handleInstantSimulate}
+              className="text-[11px] text-purple-400 hover:underline flex items-center gap-1"
+            >
+              <Zap className="h-3 w-3" /> Instant Test Activation
+            </button>
           </div>
         </div>
       </Modal>

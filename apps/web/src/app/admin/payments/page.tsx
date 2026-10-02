@@ -25,14 +25,20 @@ interface IPaymentOrder {
   _id: string;
   orderId: string;
   userId: string;
+  paymentMethod?: 'upi' | 'crypto';
   userDisplayName?: string;
   userEmail?: string;
   orderType: 'subscription' | 'credits';
   itemId: string;
   itemName: string;
   amountINR: number;
-  upiMerchantId: string;
+  upiMerchantId?: string;
   utrNumber?: string;
+  cryptoNetwork?: string;
+  cryptoCurrency?: string;
+  cryptoAmount?: number;
+  cryptoAddress?: string;
+  txHash?: string;
   status: 'pending' | 'completed' | 'rejected';
   rejectionReason?: string;
   createdAt: string;
@@ -251,9 +257,10 @@ export default function AdminPaymentsPage() {
             <thead className="bg-slate-900/80 text-slate-400 uppercase tracking-wider text-[10px] border-b border-white/5">
               <tr>
                 <th className="p-4">Order ID &amp; User</th>
+                <th className="p-4">Method &amp; Network</th>
                 <th className="p-4">Item &amp; Tier</th>
                 <th className="p-4">Amount</th>
-                <th className="p-4">12-Digit UTR Number</th>
+                <th className="p-4">UTR / TxHash Reference</th>
                 <th className="p-4">Status</th>
                 <th className="p-4">Date</th>
                 <th className="p-4 text-right">Action</th>
@@ -262,7 +269,7 @@ export default function AdminPaymentsPage() {
             <tbody className="divide-y divide-white/5">
               {filteredOrders.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-slate-500">
+                  <td colSpan={8} className="p-8 text-center text-slate-500">
                     No payment orders found matching criteria.
                   </td>
                 </tr>
@@ -274,12 +281,33 @@ export default function AdminPaymentsPage() {
                       <span className="text-[11px] text-slate-400">{ord.userDisplayName || ord.userEmail}</span>
                     </td>
                     <td className="p-4">
+                      <span className="font-bold text-white block uppercase text-[11px]">
+                        {ord.paymentMethod === 'crypto' ? '⚡ Web3 Crypto' : '🇮🇳 Direct UPI'}
+                      </span>
+                      <span className="text-[10px] text-purple-400">
+                        {ord.cryptoNetwork ? `${ord.cryptoNetwork.toUpperCase()} (${ord.cryptoCurrency})` : 'NPCI UPI'}
+                      </span>
+                    </td>
+                    <td className="p-4">
                       <span className="font-bold text-purple-300">{ord.itemName}</span>
                       <span className="text-[10px] text-slate-500 block uppercase">{ord.orderType}</span>
                     </td>
-                    <td className="p-4 font-bold text-emerald-400 text-sm">₹{ord.amountINR}</td>
-                    <td className="p-4 font-mono font-bold text-amber-300">
-                      {ord.utrNumber || <span className="text-slate-500 italic">Not submitted</span>}
+                    <td className="p-4">
+                      <span className="font-bold text-emerald-400 text-sm block">₹{ord.amountINR}</span>
+                      {ord.cryptoAmount && (
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          {ord.cryptoAmount} {ord.cryptoCurrency}
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-4 font-mono font-bold text-amber-300 text-[11px] max-w-[160px] truncate">
+                      {ord.txHash ? (
+                        <span title={ord.txHash}>{ord.txHash.slice(0, 10)}...{ord.txHash.slice(-6)}</span>
+                      ) : ord.utrNumber ? (
+                        <span>{ord.utrNumber}</span>
+                      ) : (
+                        <span className="text-slate-500 italic">Not submitted</span>
+                      )}
                     </td>
                     <td className="p-4">
                       <span

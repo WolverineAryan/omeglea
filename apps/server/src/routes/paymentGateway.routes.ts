@@ -4,6 +4,8 @@ import { requireMinRole } from '../middleware/role.middleware.js';
 import {
   createUpiOrder,
   submitUpiUtr,
+  createCryptoOrder,
+  submitCryptoTxHash,
   redeemVoucherCode,
   listAdminPaymentOrders,
   approvePaymentOrder,
@@ -13,9 +15,11 @@ import {
 
 const router = Router();
 
-// Public / Authenticated User Routes
+// Public / Authenticated User Routes (Direct UPI & Web3 Crypto)
 router.post('/upi/create-order', requireAuth, createUpiOrder);
 router.post('/upi/submit-utr', requireAuth, submitUpiUtr);
+router.post('/crypto/create-order', requireAuth, createCryptoOrder);
+router.post('/crypto/submit-tx', requireAuth, submitCryptoTxHash);
 router.post('/vouchers/redeem', requireAuth, redeemVoucherCode);
 
 // Admin Management Routes

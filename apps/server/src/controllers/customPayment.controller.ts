@@ -382,3 +382,210 @@ export async function createAdminVoucher(req: Request, res: Response): Promise<v
     data: voucher,
   });
 }
+
+// -------------------------------------------------------------
+// Blockchain / Web3 Crypto Payment Endpoints
+// -------------------------------------------------------------
+
+export async function createCryptoOrder(req: Request, res: Response): Promise<void> {
+  const userId = req.user!.userId;
+  const { orderType, itemId, network = 'polygon', currency = 'USDT' } = req.body;
+
+  if (!orderType || !itemId) {
+    res.status(400).json({
+      success: false,
+      error: { message: 'orderType and itemId are required' },
+    });
+    return;
+  }
+
+  const user = await User.findById(userId);
+  if (!user) {
+    res.status(404).json({ success: false, error: { message: 'User not found' } });
+    return;
+  }
+
+  let amountINR = 0;
+  let itemName = '';
+
+  if (orderType === 'subscription') {
+    const plan = SUBSCRIPTION_PLANS[itemId as SubscriptionPlanId];
+    if (!plan) {
+      res.status(400).json({ success: false, error: { message: `Invalid planId: ${itemId}` } });
+      return;
+    }
+    amountINR = plan.priceINR;
+    itemName = plan.name;
+  } else if (orderType === 'credits') {
+    const pkg = CREDIT_PACKAGES.find((p) => p.id === itemId);
+    if (!pkg) {
+      res.status(400).json({ success: false, error: { message: `Invalid packageId: ${itemId}` } });
+      return;
+    }
+    amountINR = pkg.priceINR;
+    itemName = `${pkg.credits} Credits (+${pkg.bonus} Bonus)`;
+  }
+
+  // Calculate USD/Crypto amount ($1 = ~₹86 INR)
+  const usdAmount = Number((amountINR / 86).toFixed(2)) || 0.05;
+
+  let receiverAddress = env.CRYPTO_RECEIVER_EVM_ADDRESS;
+  if (network === 'solana') {
+    receiverAddress = env.CRYPTO_RECEIVER_SOLANA_ADDRESS;
+  } else if (network === 'tron') {
+    receiverAddress = env.CRYPTO_RECEIVER_TRON_ADDRESS;
+  }
+
+  const orderId = `OMGL-W3-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+  const paymentOrder = await PaymentOrder.create({
+    orderId,
+    userId,
+    paymentMethod: 'crypto',
+    orderType,
+    itemId,
+    itemName,
+    amountINR,
+    cryptoNetwork: network,
+    cryptoCurrency: currency,
+    cryptoAmount: usdAmount,
+    cryptoAddress: receiverAddress,
+    status: 'pending',
+    userEmail: user.email,
+    userDisplayName: user.displayName,
+  });
+
+  const qrData = network === 'solana'
+    ? `solana:${receiverAddress}?amount=${usdAmount}&label=Omeglea`
+    : `ethereum:${receiverAddress}?value=${usdAmount}`;
+  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(receiverAddress)}`;
+
+  res.status(201).json({
+    success: true,
+    data: {
+      orderId: paymentOrder.orderId,
+      orderType,
+      itemId,
+      itemName,
+      amountINR,
+      cryptoNetwork: network,
+      cryptoCurrency: currency,
+      cryptoAmount: usdAmount,
+      cryptoAddress: receiverAddress,
+      qrCodeUrl,
+      instructions: [
+        `1. Send exactly ${usdAmount} ${currency} on ${network.toUpperCase()} network`,
+        `2. Transfer to address: ${receiverAddress}`,
+        '3. Copy the Transaction Hash (TxID) from your wallet / exchange',
+        '4. Paste TxHash below and click "Verify On-Chain"',
+      ],
+    },
+  });
+}
+
+export async function submitCryptoTxHash(req: Request, res: Response): Promise<void> {
+  const userId = req.user!.userId;
+  const { orderId, txHash } = req.body;
+
+  if (!orderId || !txHash) {
+    res.status(400).json({
+      success: false,
+      error: { message: 'orderId and txHash are required' },
+    });
+    return;
+  }
+
+  const cleanTxHash = String(txHash).trim();
+  if (cleanTxHash.length < 10 || cleanTxHash.length > 120) {
+    res.status(400).json({
+      success: false,
+      error: { message: 'Please enter a valid Transaction Hash / TxID' },
+    });
+    return;
+  }
+
+  const existing = await PaymentOrder.findOne({
+    txHash: cleanTxHash,
+    status: 'completed',
+  });
+
+  if (existing) {
+    res.status(400).json({
+      success: false,
+      error: { message: 'This Transaction Hash has already been redeemed' },
+    });
+    return;
+  }
+
+  const order = await PaymentOrder.findOne({ orderId, userId });
+  if (!order) {
+    res.status(404).json({
+      success: false,
+      error: { message: 'Payment order not found' },
+    });
+    return;
+  }
+
+  if (order.status === 'completed') {
+    res.status(400).json({
+      success: false,
+      error: { message: 'Order is already completed' },
+    });
+    return;
+  }
+
+  order.txHash = cleanTxHash;
+
+  if (env.AUTO_APPROVE_UPI_PAYMENTS) {
+    order.status = 'completed';
+    order.verifiedAt = new Date();
+    await order.save();
+
+    let fulfillmentResult: any = null;
+    if (order.orderType === 'subscription') {
+      fulfillmentResult = await fulfillSubscription(
+        userId,
+        order.itemId as SubscriptionPlanId,
+        'mock',
+        `WEB3-${cleanTxHash}`
+      );
+    } else if (order.orderType === 'credits') {
+      fulfillmentResult = await fulfillCreditPurchase(
+        userId,
+        order.itemId,
+        'mock',
+        `WEB3-${cleanTxHash}`
+      );
+    }
+
+    const updatedUser = await User.findById(userId);
+
+    res.status(200).json({
+      success: true,
+      status: 'completed',
+      message: `On-chain payment verified! ${order.itemName} is now active.`,
+      data: {
+        order,
+        fulfillment: fulfillmentResult,
+        user: {
+          role: updatedUser?.role,
+          isPremium: updatedUser?.isPremium,
+          creditBalance: updatedUser?.creditBalance,
+          dailyCallsLimit: updatedUser?.role === 'vip' ? 500 : updatedUser?.isPremium ? 100 : 10,
+        },
+      },
+    });
+    return;
+  }
+
+  order.status = 'pending';
+  await order.save();
+
+  res.status(200).json({
+    success: true,
+    status: 'pending',
+    message: 'Transaction hash submitted! Your order will be verified on-chain shortly.',
+    data: { order },
+  });
+}
+

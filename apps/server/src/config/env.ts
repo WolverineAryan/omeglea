@@ -35,6 +35,9 @@ const envSchema = z.object({
   UPI_MERCHANT_ID: z.string().default('omeglea@upi'),
   UPI_MERCHANT_NAME: z.string().default('Omeglea'),
   AUTO_APPROVE_UPI_PAYMENTS: z.string().default('true').transform((val) => val === 'true' || val === '1'),
+  CRYPTO_RECEIVER_EVM_ADDRESS: z.string().default('0x71C6797337077B84687556770CFD11818Bfa4577'),
+  CRYPTO_RECEIVER_SOLANA_ADDRESS: z.string().default('7iG8xV6eRzS1vBfQpLmN4dC2kY8uTwXaZsJqE9vW1pRt'),
+  CRYPTO_RECEIVER_TRON_ADDRESS: z.string().default('TXq1N8pLmN4dC2kY8uTwXaZsJqE9vW1pRt'),
 });
 
 const parsed = envSchema.safeParse(process.env);

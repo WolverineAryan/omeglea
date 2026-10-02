@@ -3,12 +3,18 @@ import mongoose, { Document, Schema } from 'mongoose';
 export interface IPaymentOrderDocument extends Document {
   orderId: string;
   userId: mongoose.Types.ObjectId;
+  paymentMethod: 'upi' | 'crypto';
   orderType: 'subscription' | 'credits';
   itemId: string;
   itemName: string;
   amountINR: number;
-  upiMerchantId: string;
+  upiMerchantId?: string;
   utrNumber?: string;
+  cryptoNetwork?: string;
+  cryptoCurrency?: string;
+  cryptoAmount?: number;
+  cryptoAddress?: string;
+  txHash?: string;
   status: 'pending' | 'completed' | 'rejected';
   rejectionReason?: string;
   adminNote?: string;
@@ -33,6 +39,12 @@ const PaymentOrderSchema = new Schema<IPaymentOrderDocument>(
       required: true,
       index: true,
     },
+    paymentMethod: {
+      type: String,
+      enum: ['upi', 'crypto'],
+      default: 'upi',
+      index: true,
+    },
     orderType: {
       type: String,
       enum: ['subscription', 'credits'],
@@ -52,9 +64,28 @@ const PaymentOrderSchema = new Schema<IPaymentOrderDocument>(
     },
     upiMerchantId: {
       type: String,
-      required: true,
     },
     utrNumber: {
+      type: String,
+      index: true,
+      trim: true,
+    },
+    cryptoNetwork: {
+      type: String,
+      trim: true,
+    },
+    cryptoCurrency: {
+      type: String,
+      trim: true,
+    },
+    cryptoAmount: {
+      type: Number,
+    },
+    cryptoAddress: {
+      type: String,
+      trim: true,
+    },
+    txHash: {
       type: String,
       index: true,
       trim: true,
