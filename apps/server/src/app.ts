@@ -19,6 +19,7 @@ import reportsRoutes from './routes/reports.routes.js';
 import subscriptionsRoutes from './routes/subscriptions.routes.js';
 import creditsRoutes from './routes/credits.routes.js';
 import adminRoutes from './routes/admin.routes.js';
+import paymentGatewayRoutes from './routes/paymentGateway.routes.js';
 import { mediaRouter } from './routes/media.routes.js';
 
 export function createApp(): Express {
@@ -91,6 +92,7 @@ export function createApp(): Express {
   app.use('/api/reports', reportsRoutes);
   app.use('/api/subscriptions', subscriptionsRoutes);
   app.use('/api/credits', creditsRoutes);
+  app.use('/api/payments', paymentGatewayRoutes);
   app.use('/api/media', mediaRouter);
   app.use('/api/admin', adminRoutes);
 

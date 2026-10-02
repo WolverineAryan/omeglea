@@ -32,6 +32,9 @@ const envSchema = z.object({
   CLOUDINARY_CLOUD_NAME: z.string().optional(),
   CLOUDINARY_API_KEY: z.string().optional(),
   CLOUDINARY_API_SECRET: z.string().optional(),
+  UPI_MERCHANT_ID: z.string().default('omeglea@upi'),
+  UPI_MERCHANT_NAME: z.string().default('Omeglea'),
+  AUTO_APPROVE_UPI_PAYMENTS: z.string().default('true').transform((val) => val === 'true' || val === '1'),
 });
 
 const parsed = envSchema.safeParse(process.env);

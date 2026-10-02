@@ -120,7 +120,12 @@ export default function AdminDashboardPage() {
         </div>
 
         {/* Quick navigation */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Link href="/admin/payments">
+            <Button variant="secondary" size="sm" className="bg-emerald-600/20 text-emerald-300 border-emerald-500/30">
+              <Coins className="h-4 w-4 text-emerald-400" /> Payments &amp; UPI
+            </Button>
+          </Link>
           <Link href="/admin/users">
             <Button variant="secondary" size="sm">
               <Users className="h-4 w-4" /> Users
@@ -158,16 +163,30 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* Quick Action Panels */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-4">
+        <Card className="p-6 border border-emerald-500/20 bg-emerald-950/10 space-y-4">
+          <h3 className="text-base font-bold text-white flex items-center gap-2">
+            <Coins className="h-5 w-5 text-emerald-400" /> Direct Payments
+          </h3>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Audit incoming UPI transfers, approve pending 12-digit UTR numbers, and create promo voucher gift codes.
+          </p>
+          <Link href="/admin/payments" className="block pt-2">
+            <Button variant="gradient" size="sm" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white">
+              Manage Payments →
+            </Button>
+          </Link>
+        </Card>
+
         <Card className="p-6 border border-white/10 space-y-4">
           <h3 className="text-base font-bold text-white flex items-center gap-2">
-            <Users className="h-5 w-5 text-purple-400" /> User Management
+            <Users className="h-5 w-5 text-purple-400" /> User Accounts
           </h3>
           <p className="text-xs text-slate-400 leading-relaxed">
             Search registered accounts, inspect user profile details, and enforce account suspensions or permanent bans.
           </p>
           <Link href="/admin/users" className="block pt-2">
-            <Button variant="gradient" size="sm" className="w-full">
+            <Button variant="secondary" size="sm" className="w-full">
               Manage Accounts →
             </Button>
           </Link>
@@ -175,13 +194,13 @@ export default function AdminDashboardPage() {
 
         <Card className="p-6 border border-white/10 space-y-4">
           <h3 className="text-base font-bold text-white flex items-center gap-2">
-            <ShieldAlert className="h-5 w-5 text-rose-400" /> Moderation Reports
+            <ShieldAlert className="h-5 w-5 text-rose-400" /> Moderation
           </h3>
           <p className="text-xs text-slate-400 leading-relaxed">
             Review user-submitted reports for harassment, explicit content, underage flags, or fraud.
           </p>
           <Link href="/admin/reports" className="block pt-2">
-            <Button variant="gradient" size="sm" className="w-full">
+            <Button variant="secondary" size="sm" className="w-full">
               Review Reports →
             </Button>
           </Link>
@@ -189,13 +208,13 @@ export default function AdminDashboardPage() {
 
         <Card className="p-6 border border-white/10 space-y-4">
           <h3 className="text-base font-bold text-white flex items-center gap-2">
-            <Settings className="h-5 w-5 text-emerald-400" /> Platform Settings
+            <Settings className="h-5 w-5 text-purple-400" /> Settings
           </h3>
           <p className="text-xs text-slate-400 leading-relaxed">
             Configure matching rate limits, advertisement placements, maintenance mode, and community rules.
           </p>
           <Link href="/admin/settings" className="block pt-2">
-            <Button variant="gradient" size="sm" className="w-full">
+            <Button variant="secondary" size="sm" className="w-full">
               Configure Settings →
             </Button>
           </Link>
