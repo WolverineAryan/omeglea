@@ -1,8 +1,23 @@
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+export type ClassValue = string | number | boolean | undefined | null | { [key: string]: any } | ClassValue[];
 
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
+export function cn(...inputs: any[]): string {
+  const classes: string[] = [];
+  for (const input of inputs) {
+    if (!input) continue;
+    if (typeof input === 'string') {
+      classes.push(input);
+    } else if (Array.isArray(input)) {
+      const nested = cn(...input);
+      if (nested) classes.push(nested);
+    } else if (typeof input === 'object') {
+      for (const key in input) {
+        if (Object.prototype.hasOwnProperty.call(input, key) && input[key]) {
+          classes.push(key);
+        }
+      }
+    }
+  }
+  return classes.filter(Boolean).join(' ');
 }
 
 export function formatTime(seconds: number): string {
