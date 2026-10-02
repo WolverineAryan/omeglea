@@ -1,0 +1,19 @@
+{
+  "name": "omeglea-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace=@omeglea/server\" \"npm run dev --workspace=@omeglea/web\"",
+    "dev:web": "npm run dev --workspace=@omeglea/web",
+    "dev:server": "npm run dev --workspace=@omeglea/server",
+    "build": "npm run build --workspace=@omeglea/shared && npm run build --workspace=@omeglea/server && npm run build --workspace=@omeglea/web",
+    "start": "npm run start --workspace=@omeglea/server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
