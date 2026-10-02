@@ -21,6 +21,9 @@ const envSchema = z.object({
   TURN_USERNAME: z.string().optional(),
   TURN_CREDENTIAL: z.string().optional(),
   PAYMENT_MODE: z.enum(['mock', 'live']).default('mock'),
+  CLOUDINARY_CLOUD_NAME: z.string().optional(),
+  CLOUDINARY_API_KEY: z.string().optional(),
+  CLOUDINARY_API_SECRET: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

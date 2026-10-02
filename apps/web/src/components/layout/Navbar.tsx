@@ -96,9 +96,13 @@ export function Navbar() {
               )}
 
               {/* Profile Avatar link */}
-              <Link href="/settings" className="flex items-center gap-2 hover:opacity-80 transition">
+              <Link href="/profile" className="flex items-center gap-2 hover:opacity-80 transition group">
                 <Avatar name={user.displayName} size="sm" isOnline={true} />
-                <span className="text-sm font-medium text-slate-200">{user.displayName}</span>
+                <span className="text-sm font-medium text-slate-200 group-hover:text-white">{user.displayName}</span>
+              </Link>
+
+              <Link href="/settings" title="Account Settings" className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition">
+                <UserIcon className="h-4 w-4" />
               </Link>
 
               <button
@@ -162,14 +166,19 @@ export function Navbar() {
             {user ? (
               <div className="space-y-3">
                 <div className="flex items-center justify-between px-2">
-                  <div className="flex items-center gap-2">
+                  <Link href="/profile" className="flex items-center gap-2">
                     <Avatar name={user.displayName} size="sm" isOnline={true} />
                     <span className="text-sm font-medium text-white">{user.displayName}</span>
-                  </div>
+                  </Link>
                   <Badge variant="primary">{user.creditBalance} credits</Badge>
                 </div>
-                <div className="flex gap-2">
-                  <Link href="/settings" className="flex-1">
+                <div className="grid grid-cols-3 gap-2">
+                  <Link href="/profile" className="w-full">
+                    <Button variant="secondary" size="sm" className="w-full">
+                      Profile
+                    </Button>
+                  </Link>
+                  <Link href="/settings" className="w-full">
                     <Button variant="secondary" size="sm" className="w-full">
                       Settings
                     </Button>

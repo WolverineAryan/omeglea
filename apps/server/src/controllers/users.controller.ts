@@ -38,6 +38,8 @@ export async function updateMyProfile(
     languages,
     country,
     gender,
+    age,
+    photos,
     discoveryEnabled,
     visibilitySettings,
   } = req.body;
@@ -53,6 +55,8 @@ export async function updateMyProfile(
   if (languages !== undefined) profileUpdate.languages = languages;
   if (country !== undefined) profileUpdate.country = country;
   if (gender !== undefined) profileUpdate.gender = gender;
+  if (age !== undefined) profileUpdate.age = age;
+  if (photos !== undefined) profileUpdate.photos = photos;
   if (discoveryEnabled !== undefined) profileUpdate.discoveryEnabled = discoveryEnabled;
   if (visibilitySettings !== undefined) profileUpdate.visibilitySettings = visibilitySettings;
 
@@ -76,7 +80,7 @@ export async function updateMyProfile(
 export async function getPublicProfile(req: Request, res: Response): Promise<void> {
   const targetId = req.params.id;
   const [user, profile] = await Promise.all([
-    User.findById(targetId).select('displayName isPremium role lastActiveAt accountStatus').lean(),
+    User.findById(targetId).select('displayName isPremium role lastActiveAt accountStatus createdAt').lean(),
     UserProfile.findOne({ userId: targetId }).lean(),
   ]);
 
@@ -94,6 +98,8 @@ export async function getPublicProfile(req: Request, res: Response): Promise<voi
     languages: profile?.languages || ['English'],
     country: profile?.visibilitySettings?.showCountry !== false ? profile?.country : undefined,
     gender: profile?.visibilitySettings?.showGender !== false ? profile?.gender : undefined,
+    age: profile?.age,
+    photos: profile?.photos || [],
     isPremium: Boolean(user.isPremium),
     role: user.role,
     lastActiveAt: user.lastActiveAt?.toISOString() || new Date().toISOString(),

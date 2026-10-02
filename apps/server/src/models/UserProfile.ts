@@ -8,6 +8,8 @@ export interface IUserProfileDocument extends Document {
   languages: string[];
   country?: string;
   gender?: string;
+  age?: number;
+  photos: string[];
   discoveryEnabled: boolean;
   visibilitySettings: {
     showCountry: boolean;
@@ -53,6 +55,15 @@ const userProfileSchema = new Schema<IUserProfileDocument>(
     gender: {
       type: String,
       default: '',
+    },
+    age: {
+      type: Number,
+      min: 18,
+      max: 120,
+    },
+    photos: {
+      type: [String],
+      default: [],
     },
     discoveryEnabled: {
       type: Boolean,

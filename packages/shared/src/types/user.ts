@@ -6,6 +6,8 @@ export interface IUserProfile {
   languages: string[];
   country?: string;
   gender?: string;
+  age?: number;
+  photos?: string[];
   discoveryEnabled: boolean;
   visibilitySettings: {
     showCountry: boolean;
@@ -25,6 +27,8 @@ export interface PublicUserProfile {
   languages: string[];
   country?: string;
   gender?: string;
+  age?: number;
+  photos?: string[];
   isPremium: boolean;
   role: string;
   lastActiveAt: string;

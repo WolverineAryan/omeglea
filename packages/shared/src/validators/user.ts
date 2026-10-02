@@ -8,6 +8,8 @@ export const updateProfileSchema = z.object({
   languages: z.array(z.string().min(2).max(30)).max(5, 'Maximum 5 languages allowed').optional(),
   country: z.string().max(50).optional(),
   gender: z.string().max(30).optional(),
+  age: z.number().min(18, 'Must be at least 18 years old').max(120).optional(),
+  photos: z.array(z.string().url()).max(6, 'Maximum 6 photos allowed in gallery').optional(),
   discoveryEnabled: z.boolean().optional(),
   visibilitySettings: z
     .object({
