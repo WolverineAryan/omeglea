@@ -35,12 +35,17 @@ import { api } from '../../lib/api';
 import { formatTime } from '../../lib/utils';
 import { IChatMessage, MatchFoundPayload, ReportCategory } from '@omeglea/shared';
 
-const ICE_SERVERS = {
+const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:global.stun.twilio.com:3478' },
   ],
+  iceCandidatePoolSize: 10,
 };
 
 export default function VideoChatPage() {
@@ -73,6 +78,7 @@ export default function VideoChatPage() {
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const pendingCandidatesRef = useRef<any[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Local state
@@ -100,6 +106,20 @@ export default function VideoChatPage() {
     }
     return () => clearInterval(interval);
   }, [matchState, incrementDuration]);
+
+  // Periodic heartbeat while in searching state to guarantee instant pairing
+  useEffect(() => {
+    let searchInterval: NodeJS.Timeout;
+    if (matchState === 'searching' && user) {
+      searchInterval = setInterval(() => {
+        const socket = getSocket();
+        if (socket.connected) {
+          socket.emit('matching:join', { preferences });
+        }
+      }, 3000);
+    }
+    return () => clearInterval(searchInterval);
+  }, [matchState, user, preferences]);
 
   // Scroll chat to bottom on new message
   useEffect(() => {
@@ -133,6 +153,7 @@ export default function VideoChatPage() {
 
   // 2. Cleanup WebRTC Peer Connection
   const cleanupPeerConnection = useCallback(() => {
+    pendingCandidatesRef.current = [];
     if (peerConnectionRef.current) {
       peerConnectionRef.current.ontrack = null;
       peerConnectionRef.current.onicecandidate = null;
@@ -144,6 +165,20 @@ export default function VideoChatPage() {
     }
   }, []);
 
+  // Helper to drain pending ICE candidates once remoteDescription is ready
+  const drainPendingCandidates = async (pc: RTCPeerConnection) => {
+    while (pendingCandidatesRef.current.length > 0) {
+      const candidate = pendingCandidatesRef.current.shift();
+      if (candidate) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (e) {
+          console.warn('Could not add queued ICE candidate:', e);
+        }
+      }
+    }
+  };
+
   // 3. Create WebRTC Peer Connection
   const createPeerConnection = useCallback(
     (sessionId: string) => {
@@ -151,6 +186,7 @@ export default function VideoChatPage() {
 
       const pc = new RTCPeerConnection(ICE_SERVERS);
       peerConnectionRef.current = pc;
+      pendingCandidatesRef.current = [];
 
       // Add local stream tracks to WebRTC connection
       if (localStreamRef.current) {
@@ -165,6 +201,9 @@ export default function VideoChatPage() {
       pc.ontrack = (event) => {
         if (event.streams && event.streams[0] && remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = event.streams[0];
+          remoteVideoRef.current.play().catch((err) => {
+            console.log('Remote video auto-play caught:', err);
+          });
         }
       };
 
@@ -189,7 +228,9 @@ export default function VideoChatPage() {
     if (!user) return;
 
     const socket = getSocket();
-    socket.connect();
+    if (!socket.connected) {
+      socket.connect();
+    }
 
     // Match Found
     socket.on('matching:found', async (data: MatchFoundPayload) => {
@@ -218,10 +259,11 @@ export default function VideoChatPage() {
 
     // Call Offer Received
     socket.on('call:offer', async (data: { sessionId: string; sdp: any }) => {
-      const pc = peerConnectionRef.current;
-      if (!pc) return;
+      const pc = peerConnectionRef.current || createPeerConnection(data.sessionId);
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        await drainPendingCandidates(pc);
+
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         socket.emit('call:answer', {
@@ -239,6 +281,7 @@ export default function VideoChatPage() {
       if (!pc) return;
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        await drainPendingCandidates(pc);
       } catch (err) {
         console.error('Failed to set remote answer:', err);
       }
@@ -248,10 +291,16 @@ export default function VideoChatPage() {
     socket.on('call:ice-candidate', async (data: { sessionId: string; candidate: any }) => {
       const pc = peerConnectionRef.current;
       if (!pc) return;
-      try {
-        await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-      } catch (err) {
-        console.error('Failed to add ICE candidate:', err);
+
+      if (pc.remoteDescription && pc.remoteDescription.type) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+        } catch (err) {
+          console.error('Failed to add ICE candidate:', err);
+        }
+      } else {
+        // Queue candidate until setRemoteDescription is complete
+        pendingCandidatesRef.current.push(data.candidate);
       }
     });
 
@@ -368,7 +417,14 @@ export default function VideoChatPage() {
     setConfirmDisconnectState(false);
 
     const socket = getSocket();
-    socket.emit('matching:join', { preferences });
+    if (!socket.connected) {
+      socket.connect();
+      socket.once('connect', () => {
+        socket.emit('matching:join', { preferences });
+      });
+    } else {
+      socket.emit('matching:join', { preferences });
+    }
   };
 
   // Classic Omegle Multi-State Stop/Really/Next Button Logic

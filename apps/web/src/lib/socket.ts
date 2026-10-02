@@ -5,18 +5,26 @@ const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:4000'
 
 let socketInstance: Socket<ServerToClientEvents, ClientToServerEvents> | null = null;
 
-export function getSocket(): Socket<ServerToClientEvents, ClientToServerEvents> {
-  if (!socketInstance) {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('omeglea_token') || '' : '';
+function getStoredToken(): string {
+  if (typeof window === 'undefined') return '';
+  return localStorage.getItem('omeglea_token') || '';
+}
 
+export function getSocket(): Socket<ServerToClientEvents, ClientToServerEvents> {
+  const token = getStoredToken();
+
+  if (!socketInstance) {
     socketInstance = io(SOCKET_URL, {
-      auth: { token },
+      auth: (cb) => {
+        cb({ token: getStoredToken() });
+      },
       autoConnect: false,
       reconnection: true,
-      reconnectionAttempts: 10,
+      reconnectionAttempts: 20,
       reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
+      reconnectionDelayMax: 4000,
       transports: ['websocket', 'polling'],
+      withCredentials: true,
     });
 
     socketInstance.on('connect', () => {
@@ -25,22 +33,28 @@ export function getSocket(): Socket<ServerToClientEvents, ClientToServerEvents> 
 
     socketInstance.on('disconnect', (reason) => {
       console.log('🔌 Socket disconnected:', reason);
+      if (reason === 'io server disconnect') {
+        // the disconnection was initiated by the server, reconnect manually
+        socketInstance?.connect();
+      }
     });
 
     socketInstance.on('connect_error', (err) => {
       console.warn('🔌 Socket connection error:', err.message);
     });
+  } else {
+    // Ensure current token is refreshed in socket auth
+    socketInstance.auth = { token };
   }
 
   return socketInstance;
 }
 
 export function updateSocketAuthToken(token: string): void {
-  if (socketInstance) {
-    socketInstance.auth = { token };
-    if (socketInstance.connected) {
-      socketInstance.disconnect().connect();
-    }
+  const socket = getSocket();
+  socket.auth = { token };
+  if (socket.connected) {
+    socket.disconnect().connect();
   }
 }
 

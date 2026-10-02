@@ -63,6 +63,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       const res = await api.get('/auth/me');
       if (res.data?.success && res.data.data) {
+        updateSocketAuthToken(storedToken);
         set({
           user: res.data.data.user,
           profile: res.data.data.profile,
