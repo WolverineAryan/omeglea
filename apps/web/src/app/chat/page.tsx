@@ -24,6 +24,8 @@ import {
   Info,
   Crown,
   Coins,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { getSocket } from '../../lib/socket';
 import { useAuthStore } from '../../store/authStore';
@@ -87,6 +89,7 @@ export default function VideoChatPage() {
   const [chatInput, setChatInput] = useState('');
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [isCameraReady, setIsCameraReady] = useState(false);
+  const [needsAudioUnlock, setNeedsAudioUnlock] = useState(false);
   const [interestInput, setInterestInput] = useState('');
   const [confirmDisconnectState, setConfirmDisconnectState] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
@@ -108,6 +111,46 @@ export default function VideoChatPage() {
   });
   const [socketConnected, setSocketConnected] = useState(false);
   const [activeQueueCount, setActiveQueueCount] = useState<number>(0);
+
+  // iOS WebKit & Mobile AudioContext Unmute / Unlock helper
+  const unlockAudioContext = useCallback(() => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        const ctx = new AudioCtx();
+        if (ctx.state === 'suspended') {
+          ctx.resume();
+        }
+      }
+    } catch (e) {
+      console.log('AudioContext unlock catch:', e);
+    }
+
+    if (remoteVideoRef.current) {
+      if (remoteVideoRef.current.muted) {
+        remoteVideoRef.current.muted = false;
+      }
+      remoteVideoRef.current.play().catch((err) => {
+        console.log('Remote play after unlock:', err);
+      });
+    }
+    setNeedsAudioUnlock(false);
+  }, []);
+
+  // Global touch/click listeners to unlock iOS WebKit audio subsystem
+  useEffect(() => {
+    const handleUserGesture = () => {
+      unlockAudioContext();
+    };
+
+    window.addEventListener('click', handleUserGesture, { passive: true });
+    window.addEventListener('touchstart', handleUserGesture, { passive: true });
+
+    return () => {
+      window.removeEventListener('click', handleUserGesture);
+      window.removeEventListener('touchstart', handleUserGesture);
+    };
+  }, [unlockAudioContext]);
 
   // Call duration timer
   useEffect(() => {
@@ -139,25 +182,94 @@ export default function VideoChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, peerIsTyping]);
 
+  // Progressive iOS-friendly media stream acquisition
+  const getMediaStreamWithFallback = async (): Promise<MediaStream> => {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('Camera and microphone are not supported in this browser. On iOS, please use Safari or Chrome over HTTPS.');
+    }
+
+    // Tier 1: Ideal mobile constraints (safe ideal dimensions with facingMode 'user')
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'user',
+          width: { ideal: 1280, max: 1920 },
+          height: { ideal: 720, max: 1080 },
+        },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+    } catch (err1) {
+      console.warn('Tier 1 getUserMedia failed, falling back to standard mobile constraints:', err1);
+    }
+
+    // Tier 2: Standard mobile front camera + audio
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user' },
+        audio: true,
+      });
+    } catch (err2) {
+      console.warn('Tier 2 getUserMedia failed, falling back to unconstrained video/audio:', err2);
+    }
+
+    // Tier 3: Basic unconstrained video + audio
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+    } catch (err3) {
+      console.warn('Tier 3 getUserMedia failed, falling back to video-only:', err3);
+    }
+
+    // Tier 4: Video only
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        video: true,
+      });
+    } catch (err4) {
+      console.warn('Tier 4 video-only failed, falling back to audio-only:', err4);
+    }
+
+    // Tier 5: Audio only
+    return await navigator.mediaDevices.getUserMedia({
+      audio: true,
+    });
+  };
+
   // 1. Initialize User Media (Webcam & Microphone)
   const initializeMedia = useCallback(async () => {
     try {
       setMediaError(null);
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
-        audio: true,
-      });
+      const stream = await getMediaStreamWithFallback();
 
       localStreamRef.current = stream;
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
+        localVideoRef.current.muted = true; // Local MUST be muted on iOS
+        localVideoRef.current.setAttribute('playsinline', 'true');
+        localVideoRef.current.setAttribute('webkit-playsinline', 'true');
+        const playPromise = localVideoRef.current.play();
+        if (playPromise !== undefined) {
+          playPromise.catch((err) => {
+            console.warn('Local video play catch:', err);
+          });
+        }
       }
       setIsCameraReady(true);
     } catch (err: any) {
       console.error('Error accessing camera/mic:', err);
-      let msg = 'Camera/Microphone permission denied. Please allow access in browser settings.';
-      if (err.name === 'NotFoundError') {
+      let msg = 'Camera/Microphone permission denied. Please allow access in iOS Settings > Safari / Chrome.';
+      if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
         msg = 'No camera or microphone found on your device.';
+      } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        msg = 'Permission denied. Please tap the AA/lock icon in your browser URL bar or iOS Settings to allow Camera & Microphone.';
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        msg = 'Camera or microphone is already in use by another app. Please close other camera apps and refresh.';
       }
       setMediaError(msg);
       showToast(msg, 'error');
@@ -176,6 +288,7 @@ export default function VideoChatPage() {
     if (remoteVideoRef.current) {
       remoteVideoRef.current.srcObject = null;
     }
+    setNeedsAudioUnlock(false);
   }, []);
 
   // Helper to drain pending ICE candidates once remoteDescription is ready
@@ -201,22 +314,68 @@ export default function VideoChatPage() {
       peerConnectionRef.current = pc;
       pendingCandidatesRef.current = [];
 
-      // Add local stream tracks to WebRTC connection
+      // Add local stream tracks to WebRTC connection (and ensure receive transceivers for iOS Safari)
       if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach((track) => {
-          if (localStreamRef.current) {
-            pc.addTrack(track, localStreamRef.current);
-          }
-        });
+        const audioTracks = localStreamRef.current.getAudioTracks();
+        const videoTracks = localStreamRef.current.getVideoTracks();
+
+        if (audioTracks.length > 0) {
+          pc.addTrack(audioTracks[0], localStreamRef.current);
+        } else {
+          try {
+            pc.addTransceiver('audio', { direction: 'recvonly' });
+          } catch (e) {}
+        }
+
+        if (videoTracks.length > 0) {
+          pc.addTrack(videoTracks[0], localStreamRef.current);
+        } else {
+          try {
+            pc.addTransceiver('video', { direction: 'recvonly' });
+          } catch (e) {}
+        }
+      } else {
+        try {
+          pc.addTransceiver('audio', { direction: 'recvonly' });
+          pc.addTransceiver('video', { direction: 'recvonly' });
+        } catch (e) {}
       }
 
       // Handle incoming remote stream tracks
       pc.ontrack = (event) => {
-        if (event.streams && event.streams[0] && remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = event.streams[0];
-          remoteVideoRef.current.play().catch((err) => {
-            console.log('Remote video auto-play caught:', err);
-          });
+        if (remoteVideoRef.current) {
+          if (event.streams && event.streams[0]) {
+            remoteVideoRef.current.srcObject = event.streams[0];
+          } else {
+            let inboundStream = remoteVideoRef.current.srcObject as MediaStream;
+            if (!inboundStream) {
+              inboundStream = new MediaStream();
+              remoteVideoRef.current.srcObject = inboundStream;
+            }
+            inboundStream.addTrack(event.track);
+          }
+
+          remoteVideoRef.current.setAttribute('playsinline', 'true');
+          remoteVideoRef.current.setAttribute('webkit-playsinline', 'true');
+
+          const playPromise = remoteVideoRef.current.play();
+          if (playPromise !== undefined) {
+            playPromise.catch((err) => {
+              console.log('Remote video auto-play caught (iOS autoplay policy):', err);
+              // If unmuted autoplay is blocked by WebKit audio restriction, mute temporarily and play
+              if (remoteVideoRef.current) {
+                remoteVideoRef.current.muted = true;
+                remoteVideoRef.current
+                  .play()
+                  .then(() => {
+                    setNeedsAudioUnlock(true);
+                  })
+                  .catch((e) => {
+                    console.log('Muted remote play error:', e);
+                  });
+              }
+            });
+          }
         }
       };
 
@@ -489,6 +648,7 @@ export default function VideoChatPage() {
   // Start Matching Queue
   const handleStartMatching = () => {
     if (!user) return;
+    unlockAudioContext();
     if (!isCameraReady) {
       initializeMedia();
       return;
@@ -513,6 +673,7 @@ export default function VideoChatPage() {
 
   // Classic Omegle Multi-State Stop/Really/Next Button Logic
   const handleMainActionButton = () => {
+    unlockAudioContext();
     const socket = getSocket();
 
     if (matchState === 'idle' || matchState === 'timeout' || matchState === 'disconnected') {
@@ -755,6 +916,10 @@ export default function VideoChatPage() {
               autoPlay
               playsInline
               muted
+              controls={false}
+              onLoadedMetadata={() => {
+                localVideoRef.current?.play().catch(() => {});
+              }}
               className="w-full h-full object-cover video-mirror"
             />
 
@@ -810,10 +975,28 @@ export default function VideoChatPage() {
               ref={remoteVideoRef}
               autoPlay
               playsInline
+              controls={false}
+              onLoadedMetadata={() => {
+                remoteVideoRef.current?.play().catch(() => {});
+              }}
               className={`w-full h-full object-cover ${
                 matchState === 'connected' ? 'opacity-100' : 'opacity-0 absolute'
               }`}
             />
+
+            {/* iOS / Mobile Tap to Unmute Overlay */}
+            {matchState === 'connected' && needsAudioUnlock && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  unlockAudioContext();
+                }}
+                className="absolute top-14 left-1/2 -translate-x-1/2 z-30 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-400 hover:to-purple-500 text-white font-bold text-xs shadow-2xl animate-bounce flex items-center gap-1.5 border border-white/20"
+              >
+                <Volume2 className="h-3.5 w-3.5" />
+                Tap to enable stranger audio 🔊
+              </button>
+            )}
 
             {/* OmeTV-style Searching / Idle Screen */}
             {matchState !== 'connected' && (
