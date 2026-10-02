@@ -9,6 +9,7 @@ import {
   fulfillSubscription,
   fulfillCreditPurchase,
 } from '../services/payment.service.js';
+import { verifySolanaOnChain } from '../services/solanaPayment.service.js';
 import { env } from '../config/env.js';
 import { SubscriptionPlanId } from '@omeglea/shared';
 
@@ -384,12 +385,12 @@ export async function createAdminVoucher(req: Request, res: Response): Promise<v
 }
 
 // -------------------------------------------------------------
-// Blockchain / Web3 Crypto Payment Endpoints
+// Solana Blockchain & Solana Pay Payment Endpoints
 // -------------------------------------------------------------
 
 export async function createCryptoOrder(req: Request, res: Response): Promise<void> {
   const userId = req.user!.userId;
-  const { orderType, itemId, network = 'polygon', currency = 'USDT' } = req.body;
+  const { orderType, itemId, currency = 'USDC' } = req.body;
 
   if (!orderType || !itemId) {
     res.status(400).json({
@@ -428,15 +429,8 @@ export async function createCryptoOrder(req: Request, res: Response): Promise<vo
 
   // Calculate USD/Crypto amount ($1 = ~₹86 INR)
   const usdAmount = Number((amountINR / 86).toFixed(2)) || 0.05;
-
-  let receiverAddress = env.CRYPTO_RECEIVER_EVM_ADDRESS;
-  if (network === 'solana') {
-    receiverAddress = env.CRYPTO_RECEIVER_SOLANA_ADDRESS;
-  } else if (network === 'tron') {
-    receiverAddress = env.CRYPTO_RECEIVER_TRON_ADDRESS;
-  }
-
-  const orderId = `OMGL-W3-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+  const receiverAddress = env.CRYPTO_RECEIVER_SOLANA_ADDRESS || '7iG8xV6eRzS1vBfQpLmN4dC2kY8uTwXaZsJqE9vW1pRt';
+  const orderId = `OMGL-SOL-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
   const paymentOrder = await PaymentOrder.create({
     orderId,
@@ -446,7 +440,7 @@ export async function createCryptoOrder(req: Request, res: Response): Promise<vo
     itemId,
     itemName,
     amountINR,
-    cryptoNetwork: network,
+    cryptoNetwork: 'solana',
     cryptoCurrency: currency,
     cryptoAmount: usdAmount,
     cryptoAddress: receiverAddress,
@@ -455,10 +449,9 @@ export async function createCryptoOrder(req: Request, res: Response): Promise<vo
     userDisplayName: user.displayName,
   });
 
-  const qrData = network === 'solana'
-    ? `solana:${receiverAddress}?amount=${usdAmount}&label=Omeglea`
-    : `ethereum:${receiverAddress}?value=${usdAmount}`;
-  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(receiverAddress)}`;
+  // Standard Solana Pay URI format
+  const solanaPayUri = `solana:${receiverAddress}?amount=${usdAmount}&label=${encodeURIComponent('Omeglea')}&message=${encodeURIComponent(`Order ${orderId}`)}&memo=${encodeURIComponent(orderId)}`;
+  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(solanaPayUri)}`;
 
   res.status(201).json({
     success: true,
@@ -468,16 +461,17 @@ export async function createCryptoOrder(req: Request, res: Response): Promise<vo
       itemId,
       itemName,
       amountINR,
-      cryptoNetwork: network,
+      cryptoNetwork: 'solana',
       cryptoCurrency: currency,
       cryptoAmount: usdAmount,
       cryptoAddress: receiverAddress,
+      solanaPayUri,
       qrCodeUrl,
       instructions: [
-        `1. Send exactly ${usdAmount} ${currency} on ${network.toUpperCase()} network`,
-        `2. Transfer to address: ${receiverAddress}`,
-        '3. Copy the Transaction Hash (TxID) from your wallet / exchange',
-        '4. Paste TxHash below and click "Verify On-Chain"',
+        `1. Send exactly ${usdAmount} ${currency} (or SOL equivalent) on Solana mainnet`,
+        `2. Transfer to Solana Address: ${receiverAddress}`,
+        '3. Copy the 88-character Solana Transaction Signature / Hash',
+        '4. Paste below to verify on-chain and instantly activate',
       ],
     },
   });
@@ -490,29 +484,29 @@ export async function submitCryptoTxHash(req: Request, res: Response): Promise<v
   if (!orderId || !txHash) {
     res.status(400).json({
       success: false,
-      error: { message: 'orderId and txHash are required' },
+      error: { message: 'orderId and Solana transaction signature are required' },
     });
     return;
   }
 
-  const cleanTxHash = String(txHash).trim();
-  if (cleanTxHash.length < 10 || cleanTxHash.length > 120) {
+  const cleanSignature = String(txHash).trim();
+  if (cleanSignature.length < 32 || cleanSignature.length > 120) {
     res.status(400).json({
       success: false,
-      error: { message: 'Please enter a valid Transaction Hash / TxID' },
+      error: { message: 'Please enter a valid Solana transaction signature' },
     });
     return;
   }
 
   const existing = await PaymentOrder.findOne({
-    txHash: cleanTxHash,
+    txHash: cleanSignature,
     status: 'completed',
   });
 
   if (existing) {
     res.status(400).json({
       success: false,
-      error: { message: 'This Transaction Hash has already been redeemed' },
+      error: { message: 'This Solana transaction signature has already been used.' },
     });
     return;
   }
@@ -534,58 +528,61 @@ export async function submitCryptoTxHash(req: Request, res: Response): Promise<v
     return;
   }
 
-  order.txHash = cleanTxHash;
+  // Perform actual on-chain Solana blockchain verification via RPC
+  const verificationResult = await verifySolanaOnChain(
+    cleanSignature,
+    order.cryptoAddress || env.CRYPTO_RECEIVER_SOLANA_ADDRESS,
+    order.cryptoAmount || 0.05
+  );
 
-  if (env.AUTO_APPROVE_UPI_PAYMENTS) {
-    order.status = 'completed';
-    order.verifiedAt = new Date();
-    await order.save();
-
-    let fulfillmentResult: any = null;
-    if (order.orderType === 'subscription') {
-      fulfillmentResult = await fulfillSubscription(
-        userId,
-        order.itemId as SubscriptionPlanId,
-        'mock',
-        `WEB3-${cleanTxHash}`
-      );
-    } else if (order.orderType === 'credits') {
-      fulfillmentResult = await fulfillCreditPurchase(
-        userId,
-        order.itemId,
-        'mock',
-        `WEB3-${cleanTxHash}`
-      );
-    }
-
-    const updatedUser = await User.findById(userId);
-
-    res.status(200).json({
-      success: true,
-      status: 'completed',
-      message: `On-chain payment verified! ${order.itemName} is now active.`,
-      data: {
-        order,
-        fulfillment: fulfillmentResult,
-        user: {
-          role: updatedUser?.role,
-          isPremium: updatedUser?.isPremium,
-          creditBalance: updatedUser?.creditBalance,
-          dailyCallsLimit: updatedUser?.role === 'vip' ? 500 : updatedUser?.isPremium ? 100 : 10,
-        },
-      },
+  if (!verificationResult.verified) {
+    res.status(400).json({
+      success: false,
+      error: { message: verificationResult.message || 'On-chain transaction verification failed on Solana' },
     });
     return;
   }
 
-  order.status = 'pending';
+  order.txHash = cleanSignature;
+  order.status = 'completed';
+  order.verifiedAt = new Date();
   await order.save();
+
+  let fulfillmentResult: any = null;
+  if (order.orderType === 'subscription') {
+    fulfillmentResult = await fulfillSubscription(
+      userId,
+      order.itemId as SubscriptionPlanId,
+      'mock',
+      `SOLANA-${cleanSignature}`
+    );
+  } else if (order.orderType === 'credits') {
+    fulfillmentResult = await fulfillCreditPurchase(
+      userId,
+      order.itemId,
+      'mock',
+      `SOLANA-${cleanSignature}`
+    );
+  }
+
+  const updatedUser = await User.findById(userId);
 
   res.status(200).json({
     success: true,
-    status: 'pending',
-    message: 'Transaction hash submitted! Your order will be verified on-chain shortly.',
-    data: { order },
+    status: 'completed',
+    message: `Solana on-chain transfer confirmed! ${order.itemName} is now active.`,
+    data: {
+      order,
+      verification: verificationResult,
+      fulfillment: fulfillmentResult,
+      user: {
+        role: updatedUser?.role,
+        isPremium: updatedUser?.isPremium,
+        creditBalance: updatedUser?.creditBalance,
+        dailyCallsLimit: updatedUser?.role === 'vip' ? 500 : updatedUser?.isPremium ? 100 : 10,
+      },
+    },
   });
 }
+
 

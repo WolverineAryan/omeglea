@@ -17,7 +17,7 @@ import {
   ArrowRight,
   HelpCircle,
   Wallet,
-  Globe2,
+  Loader2,
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../store/authStore';
@@ -51,6 +51,7 @@ interface ICryptoOrderData {
   cryptoCurrency: string;
   cryptoAmount: number;
   cryptoAddress: string;
+  solanaPayUri: string;
   qrCodeUrl: string;
   instructions: string[];
 }
@@ -63,7 +64,7 @@ export default function PricingPage() {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<any>(null);
   const [selectedCreditPkg, setSelectedCreditPkg] = useState<any>(null);
-  const [paymentTab, setPaymentTab] = useState<'upi' | 'crypto'>('upi');
+  const [paymentTab, setPaymentTab] = useState<'solana' | 'upi'>('solana');
 
   // UPI State
   const [upiOrder, setUpiOrder] = useState<IUpiOrderData | null>(null);
@@ -71,14 +72,13 @@ export default function PricingPage() {
   const [isVerifyingUtr, setIsVerifyingUtr] = useState(false);
   const [copiedUpi, setCopiedUpi] = useState(false);
 
-  // Crypto / Blockchain State
+  // Solana State
   const [cryptoOrder, setCryptoOrder] = useState<ICryptoOrderData | null>(null);
-  const [cryptoNetwork, setCryptoNetwork] = useState<'polygon' | 'solana' | 'bsc' | 'base' | 'tron'>('polygon');
-  const [cryptoCurrency, setCryptoCurrency] = useState<'USDT' | 'USDC'>('USDT');
-  const [txHash, setTxHash] = useState('');
-  const [isVerifyingCrypto, setIsVerifyingCrypto] = useState(false);
-  const [copiedCryptoAddress, setCopiedCryptoAddress] = useState(false);
-  const [isConnectingWallet, setIsConnectingWallet] = useState(false);
+  const [cryptoCurrency, setCryptoCurrency] = useState<'USDC' | 'SOL'>('USDC');
+  const [solanaSignature, setSolanaSignature] = useState('');
+  const [isVerifyingSolana, setIsVerifyingSolana] = useState(false);
+  const [copiedSolanaAddress, setCopiedSolanaAddress] = useState(false);
+  const [isConnectingPhantom, setIsConnectingPhantom] = useState(false);
 
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
 
@@ -153,7 +153,7 @@ export default function PricingPage() {
       particleCount: 80,
       spread: 70,
       origin: { y: 0.6 },
-      colors: ['#8B5CF6', '#EC4899', '#22C55E', '#EAB308'],
+      colors: ['#14F195', '#9945FF', '#8B5CF6', '#EC4899'],
     });
   };
 
@@ -174,10 +174,21 @@ export default function PricingPage() {
 
     setIsCreatingOrder(true);
     setUtrNumber('');
-    setTxHash('');
+    setSolanaSignature('');
     setIsCheckoutOpen(true);
 
     try {
+      // Create Solana order
+      const resCrypto = await api.post('/payments/crypto/create-order', {
+        orderType: type,
+        itemId: item.id,
+        network: 'solana',
+        currency: cryptoCurrency,
+      });
+      if (resCrypto.data?.success) {
+        setCryptoOrder(resCrypto.data.data);
+      }
+
       // Create UPI order
       const resUpi = await api.post('/payments/upi/create-order', {
         orderType: type,
@@ -186,21 +197,32 @@ export default function PricingPage() {
       if (resUpi.data?.success) {
         setUpiOrder(resUpi.data.data);
       }
-
-      // Create Crypto order
-      const resCrypto = await api.post('/payments/crypto/create-order', {
-        orderType: type,
-        itemId: item.id,
-        network: cryptoNetwork,
-        currency: cryptoCurrency,
-      });
-      if (resCrypto.data?.success) {
-        setCryptoOrder(resCrypto.data.data);
-      }
     } catch {
       // Local fallback
-      const orderId = `OMGL-${Date.now().toString(36).toUpperCase()}`;
       const amount = item.price;
+      const usd = Number((amount / 86).toFixed(2)) || 0.05;
+      const solAddr = '7iG8xV6eRzS1vBfQpLmN4dC2kY8uTwXaZsJqE9vW1pRt';
+      const orderId = `OMGL-SOL-${Date.now().toString(36).toUpperCase()}`;
+
+      setCryptoOrder({
+        orderId,
+        orderType: type,
+        itemId: item.id,
+        itemName: item.name || `${item.credits} Credits`,
+        amountINR: amount,
+        cryptoNetwork: 'solana',
+        cryptoCurrency: 'USDC',
+        cryptoAmount: usd,
+        cryptoAddress: solAddr,
+        solanaPayUri: `solana:${solAddr}?amount=${usd}&label=Omeglea&memo=${orderId}`,
+        qrCodeUrl: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(`solana:${solAddr}?amount=${usd}&label=Omeglea`)}`,
+        instructions: [
+          `Send ${usd} USDC on Solana`,
+          `Transfer to address: ${solAddr}`,
+          'Paste Solana transaction signature to verify on-chain',
+        ],
+      });
+
       const upiId = 'omeglea@upi';
       const upiUri = `upi://pay?pa=${upiId}&pn=Omeglea&am=${amount}&cu=INR&tn=${orderId}`;
       setUpiOrder({
@@ -213,54 +235,73 @@ export default function PricingPage() {
         upiMerchantName: 'Omeglea',
         upiUri,
         qrCodeUrl: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(upiUri)}`,
-        instructions: ['Scan QR code', 'Complete payment', 'Paste 12-digit UTR'],
-      });
-
-      const usd = Number((amount / 86).toFixed(2)) || 0.05;
-      const evmAddr = '0x71C6797337077B84687556770CFD11818Bfa4577';
-      setCryptoOrder({
-        orderId: `OMGL-W3-${Date.now().toString(36).toUpperCase()}`,
-        orderType: type,
-        itemId: item.id,
-        itemName: item.name || `${item.credits} Credits`,
-        amountINR: amount,
-        cryptoNetwork: 'polygon',
-        cryptoCurrency: 'USDT',
-        cryptoAmount: usd,
-        cryptoAddress: evmAddr,
-        qrCodeUrl: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(evmAddr)}`,
-        instructions: ['Transfer crypto', 'Copy TxID / Hash', 'Verify on-chain'],
+        instructions: ['Scan QR code', 'Check bank transaction', 'Enter 12-digit UTR'],
       });
     } finally {
       setIsCreatingOrder(false);
     }
   };
 
-  // Switch Crypto Network
-  const handleNetworkChange = async (net: any, curr: any) => {
-    setCryptoNetwork(net);
-    setCryptoCurrency(curr);
-    const item = selectedPlan || selectedCreditPkg;
-    const type = selectedPlan ? 'subscription' : 'credits';
-    if (!item) return;
+  // Submit Solana Signature (Verified On-Chain via Solana RPC)
+  const handleVerifySolana = async () => {
+    if (!solanaSignature.trim() || !cryptoOrder) {
+      showToast('Please enter your 88-character Solana Transaction Signature', 'error');
+      return;
+    }
 
+    setIsVerifyingSolana(true);
     try {
-      const res = await api.post('/payments/crypto/create-order', {
-        orderType: type,
-        itemId: item.id,
-        network: net,
-        currency: curr,
+      const res = await api.post('/payments/crypto/submit-tx', {
+        orderId: cryptoOrder.orderId,
+        txHash: solanaSignature.trim(),
       });
+
       if (res.data?.success) {
-        setCryptoOrder(res.data.data);
+        showToast(res.data.message || 'Solana on-chain payment confirmed & activated!', 'success');
+        triggerConfetti();
+
+        if (cryptoOrder.orderType === 'subscription') {
+          const role = cryptoOrder.itemId === 'quarterly' || cryptoOrder.itemId === 'vip' ? 'vip' : 'premium';
+          if (user) setUser({ ...user, isPremium: true, role });
+        } else if (cryptoOrder.orderType === 'credits') {
+          const addedCredits = selectedCreditPkg ? selectedCreditPkg.credits + (selectedCreditPkg.bonus || 0) : 0;
+          updateCredits((user?.creditBalance || 0) + addedCredits);
+        }
+
+        setIsCheckoutOpen(false);
       }
-    } catch {}
+    } catch (err: any) {
+      showToast(err.response?.data?.error?.message || 'On-chain verification error. Ensure transaction is confirmed.', 'error');
+    } finally {
+      setIsVerifyingSolana(false);
+    }
+  };
+
+  // 1-Click Pay with Phantom / Solflare Wallet
+  const handleConnectPhantomPay = async () => {
+    if (typeof window === 'undefined') return;
+
+    const phantom = (window as any).solana;
+    if (phantom && phantom.isPhantom) {
+      try {
+        setIsConnectingPhantom(true);
+        const resp = await phantom.connect();
+        showToast(`Connected: ${resp.publicKey.toString().slice(0, 6)}...`, 'success');
+        showToast('Please send transfer from Phantom and paste transaction signature', 'info');
+      } catch {
+        showToast('Phantom connection rejected', 'error');
+      } finally {
+        setIsConnectingPhantom(false);
+      }
+    } else {
+      window.open('https://phantom.app/', '_blank');
+    }
   };
 
   // Submit UPI UTR
   const handleVerifyUtr = async () => {
     if (!utrNumber.trim() || !upiOrder) {
-      showToast('Please enter your 12-digit UTR / Bank Reference number', 'error');
+      showToast('Please enter your 12-digit UTR from your bank app', 'error');
       return;
     }
 
@@ -272,7 +313,7 @@ export default function PricingPage() {
       });
 
       if (res.data?.success) {
-        showToast(res.data.message || 'Payment verified & activated!', 'success');
+        showToast(res.data.message || 'Payment submitted! Matching with bank statement...', 'success');
         triggerConfetti();
 
         if (upiOrder.orderType === 'subscription') {
@@ -286,129 +327,21 @@ export default function PricingPage() {
         setIsCheckoutOpen(false);
       }
     } catch {
-      showToast('Payment verified & activated successfully!', 'success');
-      triggerConfetti();
-      if (upiOrder.orderType === 'subscription') {
-        const role = upiOrder.itemId === 'quarterly' || upiOrder.itemId === 'vip' ? 'vip' : 'premium';
-        if (user) setUser({ ...user, isPremium: true, role });
-      } else if (upiOrder.orderType === 'credits') {
-        const addedCredits = selectedCreditPkg ? selectedCreditPkg.credits + (selectedCreditPkg.bonus || 0) : 0;
-        updateCredits((user?.creditBalance || 0) + addedCredits);
-      }
+      showToast('Payment submitted for bank statement verification', 'info');
       setIsCheckoutOpen(false);
     } finally {
       setIsVerifyingUtr(false);
     }
   };
 
-  // Submit Crypto TxHash
-  const handleVerifyCrypto = async () => {
-    if (!txHash.trim() || !cryptoOrder) {
-      showToast('Please enter the Transaction Hash (TxID) from your wallet', 'error');
-      return;
-    }
-
-    setIsVerifyingCrypto(true);
-    try {
-      const res = await api.post('/payments/crypto/submit-tx', {
-        orderId: cryptoOrder.orderId,
-        txHash: txHash.trim(),
-      });
-
-      if (res.data?.success) {
-        showToast(res.data.message || 'Crypto payment verified & activated!', 'success');
-        triggerConfetti();
-
-        if (cryptoOrder.orderType === 'subscription') {
-          const role = cryptoOrder.itemId === 'quarterly' || cryptoOrder.itemId === 'vip' ? 'vip' : 'premium';
-          if (user) setUser({ ...user, isPremium: true, role });
-        } else if (cryptoOrder.orderType === 'credits') {
-          const addedCredits = selectedCreditPkg ? selectedCreditPkg.credits + (selectedCreditPkg.bonus || 0) : 0;
-          updateCredits((user?.creditBalance || 0) + addedCredits);
-        }
-
-        setIsCheckoutOpen(false);
-      }
-    } catch {
-      showToast('On-chain transaction confirmed & activated!', 'success');
-      triggerConfetti();
-      if (cryptoOrder.orderType === 'subscription') {
-        const role = cryptoOrder.itemId === 'quarterly' || cryptoOrder.itemId === 'vip' ? 'vip' : 'premium';
-        if (user) setUser({ ...user, isPremium: true, role });
-      } else if (cryptoOrder.orderType === 'credits') {
-        const addedCredits = selectedCreditPkg ? selectedCreditPkg.credits + (selectedCreditPkg.bonus || 0) : 0;
-        updateCredits((user?.creditBalance || 0) + addedCredits);
-      }
-      setIsCheckoutOpen(false);
-    } finally {
-      setIsVerifyingCrypto(false);
-    }
-  };
-
-  // Web3 Browser Wallet 1-Click Pay (MetaMask / Phantom / Trust)
-  const handleConnectWalletPay = async () => {
-    if (typeof window === 'undefined') return;
-
-    if (cryptoNetwork === 'solana') {
-      if ((window as any).solana && (window as any).solana.isPhantom) {
-        try {
-          setIsConnectingWallet(true);
-          const resp = await (window as any).solana.connect();
-          showToast(`Connected: ${resp.publicKey.toString().slice(0, 6)}...`, 'success');
-          // Prompt user to approve transaction or paste signature
-          showToast('Please approve transfer in Phantom and paste signature', 'info');
-        } catch {
-          showToast('Phantom wallet connection rejected', 'error');
-        } finally {
-          setIsConnectingWallet(false);
-        }
-      } else {
-        window.open('https://phantom.app/', '_blank');
-      }
-      return;
-    }
-
-    // EVM Wallets (MetaMask, Coinbase, Rainbow)
-    if ((window as any).ethereum) {
-      try {
-        setIsConnectingWallet(true);
-        const accounts = await (window as any).ethereum.request({ method: 'eth_requestAccounts' });
-        showToast(`Connected: ${accounts[0]?.slice(0, 6)}...`, 'success');
-
-        // Send transaction
-        const tx = await (window as any).ethereum.request({
-          method: 'eth_sendTransaction',
-          params: [
-            {
-              from: accounts[0],
-              to: cryptoOrder?.cryptoAddress,
-              value: '0x0', // For tokens, or native value
-            },
-          ],
-        });
-
-        if (tx) {
-          setTxHash(tx);
-          showToast('Transaction submitted! Verifying...', 'success');
-        }
-      } catch (err: any) {
-        showToast(err?.message || 'Wallet transaction cancelled', 'info');
-      } finally {
-        setIsConnectingWallet(false);
-      }
-    } else {
-      window.open('https://metamask.io/download/', '_blank');
-    }
-  };
-
-  // Instant Simulation Bypass (for quick testing)
+  // Instant Simulation Bypass
   const handleInstantSimulate = () => {
-    if (paymentTab === 'upi') {
-      setUtrNumber(`428${Math.floor(100000000 + Math.random() * 900000000)}`);
-      handleVerifyUtr();
+    if (paymentTab === 'solana') {
+      setSolanaSignature(`TEST-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`);
+      setTimeout(() => handleVerifySolana(), 100);
     } else {
-      setTxHash(`0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`);
-      handleVerifyCrypto();
+      setUtrNumber(`428${Math.floor(100000000 + Math.random() * 900000000)}`);
+      setTimeout(() => handleVerifyUtr(), 100);
     }
   };
 
@@ -446,16 +379,16 @@ export default function PricingPage() {
     }
   };
 
-  const copyText = (text: string, type: 'upi' | 'crypto') => {
+  const copyText = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
-    if (type === 'upi') {
+    if (label === 'solana') {
+      setCopiedSolanaAddress(true);
+      showToast('Solana wallet address copied!', 'success');
+      setTimeout(() => setCopiedSolanaAddress(false), 2000);
+    } else {
       setCopiedUpi(true);
       showToast('UPI ID copied!', 'success');
       setTimeout(() => setCopiedUpi(false), 2000);
-    } else {
-      setCopiedCryptoAddress(true);
-      showToast('Wallet address copied!', 'success');
-      setTimeout(() => setCopiedCryptoAddress(false), 2000);
     }
   };
 
@@ -464,13 +397,13 @@ export default function PricingPage() {
       {/* Header */}
       <div className="text-center max-w-2xl mx-auto space-y-3">
         <Badge variant="premium">
-          <Sparkles className="h-3 w-3" /> Zero-Fee Gateway
+          <Sparkles className="h-3 w-3" /> Zero-Fee Direct Gateway
         </Badge>
         <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
           Supercharge Your Connections
         </h1>
         <p className="text-xs sm:text-sm text-slate-400">
-          Direct peer-to-peer payments via <strong>UPI (GPay/PhonePe)</strong> or <strong>Web3 Blockchain (USDT/Solana/Polygon)</strong> with zero merchant fees.
+          Fast, permissionless checkout via <strong>Solana Pay (USDC / SOL)</strong> or <strong>Direct Bank UPI</strong>.
         </p>
 
         {/* Daily Call Limits & Credits Policy Notice */}
@@ -519,7 +452,9 @@ export default function PricingPage() {
 
                 <div className="my-6 flex items-baseline gap-2">
                   <span className="text-4xl font-black text-white">₹{plan.price}</span>
-                  <span className="text-xs text-slate-400 font-mono">(~${(plan.price / 86).toFixed(2)} USDT)</span>
+                  <span className="text-xs text-emerald-400 font-mono font-bold">
+                    (~${(plan.price / 86).toFixed(2)} USDC)
+                  </span>
                 </div>
 
                 <div className="space-y-3 pt-4 border-t border-white/5">
@@ -628,11 +563,11 @@ export default function PricingPage() {
         </div>
       </Card>
 
-      {/* Dual Payment Modal (UPI & Blockchain Crypto) */}
+      {/* Dual Payment Modal (Solana Pay & Direct Bank UPI) */}
       <Modal
         isOpen={isCheckoutOpen}
         onClose={() => setIsCheckoutOpen(false)}
-        title="Direct Zero-Fee Payment"
+        title="Direct Payment (Zero-Fee)"
       >
         <div className="space-y-5">
           {/* Item & Price Summary */}
@@ -648,7 +583,7 @@ export default function PricingPage() {
               <p className="text-2xl font-black text-emerald-400">
                 ₹{selectedPlan?.price || selectedCreditPkg?.price || 0}{' '}
                 <span className="text-xs text-slate-400 font-mono font-normal">
-                  (~${((selectedPlan?.price || selectedCreditPkg?.price || 0) / 86).toFixed(2)} USDT)
+                  (~${((selectedPlan?.price || selectedCreditPkg?.price || 0) / 86).toFixed(2)} USDC)
                 </span>
               </p>
             </div>
@@ -657,6 +592,16 @@ export default function PricingPage() {
           {/* Payment Method Selector Tabs */}
           <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-slate-900 border border-white/10 text-xs font-bold">
             <button
+              onClick={() => setPaymentTab('solana')}
+              className={`py-2 rounded-lg flex items-center justify-center gap-2 transition ${
+                paymentTab === 'solana'
+                  ? 'bg-gradient-to-r from-[#9945FF] to-[#14F195] text-black font-extrabold shadow-lg'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Wallet className="h-4 w-4" /> ⚡ Solana Pay (Instant On-Chain)
+            </button>
+            <button
               onClick={() => setPaymentTab('upi')}
               className={`py-2 rounded-lg flex items-center justify-center gap-2 transition ${
                 paymentTab === 'upi'
@@ -664,21 +609,92 @@ export default function PricingPage() {
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              <Smartphone className="h-4 w-4" /> 🇮🇳 Direct UPI / QR
-            </button>
-            <button
-              onClick={() => setPaymentTab('crypto')}
-              className={`py-2 rounded-lg flex items-center justify-center gap-2 transition ${
-                paymentTab === 'crypto'
-                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Wallet className="h-4 w-4" /> ⚡ Web3 Blockchain
+              <Smartphone className="h-4 w-4" /> 🇮🇳 Bank UPI / QR
             </button>
           </div>
 
-          {/* TAB 1: Direct UPI */}
+          {/* TAB 1: Solana Blockchain Payment */}
+          {paymentTab === 'solana' && cryptoOrder && (
+            <div className="space-y-4">
+              <div className="flex flex-col items-center justify-center p-4 rounded-2xl bg-slate-900 border border-purple-500/20 space-y-3">
+                {/* Solana Pay QR Code */}
+                <div className="p-3 bg-white rounded-2xl shadow-xl border-2 border-[#14F195]/40">
+                  <img
+                    src={cryptoOrder.qrCodeUrl}
+                    alt="Solana Pay QR Code"
+                    className="w-44 h-44 rounded-lg object-contain mx-auto"
+                  />
+                </div>
+
+                <div className="text-center space-y-0.5">
+                  <span className="text-[11px] text-slate-400 block">Scan with Phantom / Solflare or transfer:</span>
+                  <span className="text-xl font-black text-[#14F195] font-mono">
+                    {cryptoOrder.cryptoAmount} {cryptoOrder.cryptoCurrency} (Solana)
+                  </span>
+                </div>
+
+                {/* 1-Click Phantom Wallet Pay */}
+                <Button
+                  variant="gradient"
+                  size="md"
+                  onClick={handleConnectPhantomPay}
+                  isLoading={isConnectingPhantom}
+                  className="w-full font-bold gap-2 bg-gradient-to-r from-[#9945FF] to-[#14F195] text-black hover:opacity-90 shadow-lg"
+                >
+                  <Wallet className="h-4 w-4" /> Pay with Phantom / Solflare Wallet
+                </Button>
+
+                {/* Solana Deposit Address */}
+                <div className="flex items-center justify-between w-full p-2.5 rounded-xl bg-black/50 border border-white/10 text-xs">
+                  <span className="text-slate-400 font-mono text-[10px] truncate max-w-[200px]">
+                    {cryptoOrder.cryptoAddress}
+                  </span>
+                  <button
+                    onClick={() => copyText(cryptoOrder.cryptoAddress, 'solana')}
+                    className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-slate-200 text-[11px] font-bold flex items-center gap-1 transition shrink-0 ml-2"
+                  >
+                    <Copy className="h-3 w-3" /> {copiedSolanaAddress ? 'Copied' : 'Copy Address'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Solana Transaction Signature Input */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-200 block">
+                  Enter Solana Transaction Signature / Hash
+                </label>
+                <Input
+                  placeholder="e.g. 5J7w9z... (Found in Phantom or Solscan)"
+                  value={solanaSignature}
+                  onChange={(e) => setSolanaSignature(e.target.value)}
+                  className="font-mono text-xs tracking-wider font-bold"
+                />
+                <p className="text-[11px] text-slate-400">
+                  Our server talks directly with the Solana blockchain cluster to verify your transfer in real time.
+                </p>
+              </div>
+
+              <Button
+                variant="gradient"
+                size="lg"
+                className="w-full font-extrabold bg-[#14F195] text-black hover:bg-[#14F195]/90"
+                isLoading={isVerifyingSolana}
+                onClick={handleVerifySolana}
+              >
+                {isVerifyingSolana ? (
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Verifying with Solana RPC Cluster...
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5">
+                    <CheckCircle2 className="h-4 w-4" /> Verify On-Chain &amp; Activate
+                  </span>
+                )}
+              </Button>
+            </div>
+          )}
+
+          {/* TAB 2: Direct Bank UPI */}
           {paymentTab === 'upi' && upiOrder && (
             <div className="space-y-4">
               <div className="flex flex-col items-center justify-center p-4 rounded-2xl bg-slate-900 border border-white/10 space-y-3">
@@ -715,14 +731,17 @@ export default function PricingPage() {
 
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-slate-200 block">
-                  Enter 12-Digit UTR Number
+                  Enter 12-Digit Bank UTR / Reference Number
                 </label>
                 <Input
-                  placeholder="e.g. 428192849182 (from payment receipt)"
+                  placeholder="e.g. 428192849182 (from bank receipt)"
                   value={utrNumber}
                   onChange={(e) => setUtrNumber(e.target.value)}
                   className="font-mono text-sm tracking-wider font-bold"
                 />
+                <p className="text-[11px] text-slate-400">
+                  Transaction is matched against incoming bank transfers in the ledger.
+                </p>
               </div>
 
               <Button
@@ -732,106 +751,7 @@ export default function PricingPage() {
                 isLoading={isVerifyingUtr}
                 onClick={handleVerifyUtr}
               >
-                <CheckCircle2 className="h-4 w-4 mr-1.5" /> Submit UTR &amp; Activate
-              </Button>
-            </div>
-          )}
-
-          {/* TAB 2: Blockchain Web3 Crypto */}
-          {paymentTab === 'crypto' && cryptoOrder && (
-            <div className="space-y-4">
-              {/* Network Selector */}
-              <div>
-                <label className="text-xs font-bold text-slate-300 block mb-1.5">
-                  Select Blockchain Network
-                </label>
-                <div className="grid grid-cols-3 gap-2 text-xs font-bold">
-                  {[
-                    { id: 'polygon', name: 'Polygon', cur: 'USDT' },
-                    { id: 'solana', name: 'Solana', cur: 'USDC' },
-                    { id: 'bsc', name: 'BNB Chain', cur: 'USDT' },
-                    { id: 'base', name: 'Base', cur: 'USDC' },
-                    { id: 'tron', name: 'Tron (TRC20)', cur: 'USDT' },
-                  ].map((n) => (
-                    <button
-                      key={n.id}
-                      onClick={() => handleNetworkChange(n.id, n.cur)}
-                      className={`p-2 rounded-xl border text-center transition ${
-                        cryptoNetwork === n.id
-                          ? 'border-purple-500 bg-purple-950/40 text-white shadow-md'
-                          : 'border-white/10 bg-slate-900 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      <div className="text-[11px]">{n.name}</div>
-                      <div className="text-[9px] text-emerald-400">{n.cur}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Crypto Payment Details Card */}
-              <div className="flex flex-col items-center justify-center p-4 rounded-2xl bg-slate-900 border border-white/10 space-y-3">
-                <div className="p-3 bg-white rounded-2xl shadow-xl">
-                  <img
-                    src={cryptoOrder.qrCodeUrl}
-                    alt="Crypto Address QR"
-                    className="w-40 h-40 rounded-lg object-contain mx-auto"
-                  />
-                </div>
-
-                <div className="text-center space-y-1">
-                  <span className="text-xs text-slate-400 block">Send exact amount:</span>
-                  <span className="text-xl font-black text-emerald-400 font-mono">
-                    {cryptoOrder.cryptoAmount} {cryptoOrder.cryptoCurrency}
-                  </span>
-                </div>
-
-                {/* Web3 1-Click Pay */}
-                <Button
-                  variant="gradient"
-                  size="md"
-                  onClick={handleConnectWalletPay}
-                  isLoading={isConnectingWallet}
-                  className="w-full font-bold gap-2 shadow-lg shadow-purple-600/30"
-                >
-                  <Wallet className="h-4 w-4" /> 1-Click Pay with Web3 Wallet (MetaMask/Phantom)
-                </Button>
-
-                {/* Address Copy */}
-                <div className="flex items-center justify-between w-full p-2.5 rounded-xl bg-black/50 border border-white/10 text-xs">
-                  <span className="text-slate-400 font-mono text-[10px] truncate max-w-[200px]">
-                    {cryptoOrder.cryptoAddress}
-                  </span>
-                  <button
-                    onClick={() => copyText(cryptoOrder.cryptoAddress, 'crypto')}
-                    className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-slate-200 text-[11px] font-bold flex items-center gap-1 transition shrink-0 ml-2"
-                  >
-                    <Copy className="h-3 w-3" /> {copiedCryptoAddress ? 'Copied' : 'Copy Address'}
-                  </button>
-                </div>
-              </div>
-
-              {/* TxHash Input */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-200 block">
-                  Enter Transaction Hash / TxID
-                </label>
-                <Input
-                  placeholder="e.g. 0x4f829a... or Solana signature"
-                  value={txHash}
-                  onChange={(e) => setTxHash(e.target.value)}
-                  className="font-mono text-xs tracking-wider font-bold"
-                />
-              </div>
-
-              <Button
-                variant="gradient"
-                size="lg"
-                className="w-full font-extrabold bg-emerald-600 hover:bg-emerald-500 text-white"
-                isLoading={isVerifyingCrypto}
-                onClick={handleVerifyCrypto}
-              >
-                <CheckCircle2 className="h-4 w-4 mr-1.5" /> Verify On-Chain &amp; Activate
+                <CheckCircle2 className="h-4 w-4 mr-1.5" /> Submit Bank UTR &amp; Activate
               </Button>
             </div>
           )}
