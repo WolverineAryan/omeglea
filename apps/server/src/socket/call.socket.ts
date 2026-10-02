@@ -67,4 +67,31 @@ export function registerCallHandlers(io: Server, socket: Socket): void {
     // Leave the socket room
     socket.leave(data.sessionId);
   });
+
+  // Handle socket abrupt disconnect during active call
+  socket.on('disconnecting', async () => {
+    for (const room of socket.rooms) {
+      if (room !== socket.id && !room.startsWith('user:')) {
+        socket.to(room).emit('call:ended', {
+          sessionId: room,
+          reason: 'peer_disconnected',
+        });
+
+        try {
+          await ChatSession.findOneAndUpdate(
+            { sessionId: room, status: 'active' },
+            {
+              $set: {
+                status: 'ended',
+                endedAt: new Date(),
+                terminationReason: 'peer_disconnected',
+              },
+            }
+          );
+        } catch (err: any) {
+          logger.error('Error updating disconnected ChatSession in DB:', err.message);
+        }
+      }
+    }
+  });
 }

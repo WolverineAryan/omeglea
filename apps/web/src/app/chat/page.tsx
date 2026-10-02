@@ -220,9 +220,39 @@ export default function VideoChatPage() {
         }
       };
 
+      // Auto-terminate and move to next match on WebRTC peer disconnect
+      pc.onconnectionstatechange = () => {
+        if (
+          pc.connectionState === 'disconnected' ||
+          pc.connectionState === 'failed' ||
+          pc.connectionState === 'closed'
+        ) {
+          const socket = getSocket();
+          if (socket.connected) {
+            socket.emit('call:end', { sessionId, reason: 'connection_lost' });
+          }
+          cleanupPeerConnection();
+          resetDuration();
+          clearMessages();
+          setConfirmDisconnectState(false);
+          showToast('Stranger disconnected. Moving to next match...', 'info');
+          setMatchState('searching');
+          if (socket.connected) {
+            socket.emit('matching:join', { preferences });
+          }
+        }
+      };
+
       return pc;
     },
-    [cleanupPeerConnection]
+    [
+      cleanupPeerConnection,
+      preferences,
+      resetDuration,
+      clearMessages,
+      showToast,
+      setMatchState,
+    ]
   );
 
   // 4. Socket.IO Listeners & WebRTC Signaling
@@ -323,12 +353,20 @@ export default function VideoChatPage() {
       }
     });
 
-    // Call Ended by Peer
+    // Call Ended by Peer / Stranger Disconnected
     socket.on('call:ended', () => {
       cleanupPeerConnection();
-      setMatchState('disconnected');
+      resetDuration();
+      clearMessages();
       setConfirmDisconnectState(false);
-      showToast('Stranger has disconnected.', 'info');
+      showToast('Stranger disconnected. Finding next match...', 'info');
+
+      // Auto transition to next match
+      setMatchState('searching');
+      const currentSocket = getSocket();
+      if (currentSocket.connected) {
+        currentSocket.emit('matching:join', { preferences });
+      }
     });
 
     // Chat Message Received
@@ -381,6 +419,7 @@ export default function VideoChatPage() {
     clearMessages,
     addMessage,
     showToast,
+    preferences,
   ]);
 
   // Initial media setup on mount
