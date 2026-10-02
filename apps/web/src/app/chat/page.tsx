@@ -45,7 +45,7 @@ const ICE_SERVERS = {
 
 export default function VideoChatPage() {
   const router = useRouter();
-  const { user, isInitialized, setAuth } = useAuthStore();
+  const { user, isInitialized } = useAuthStore();
   const { showToast } = useToast();
 
   const {
@@ -89,30 +89,6 @@ export default function VideoChatPage() {
   const [reportCategory, setReportCategory] = useState<ReportCategory>('inappropriate_behavior');
   const [reportDescription, setReportDescription] = useState('');
   const [isBlockModalOpen, setIsBlockModalOpen] = useState(false);
-
-  // Quick Demo Login for testing
-  const handleQuickDemoLogin = async () => {
-    try {
-      const demoEmail = `user_${Math.random().toString(36).substring(2, 7)}@example.com`;
-      const res = await api.post('/auth/register', {
-        displayName: `OmegleUser_${Math.floor(Math.random() * 900 + 100)}`,
-        email: demoEmail,
-        password: 'Password123',
-        confirmPassword: 'Password123',
-        dateOfBirth: '2000-01-01',
-        termsAccepted: true,
-        privacyAccepted: true,
-        ageConfirmed: true,
-      });
-      if (res.data?.success && res.data.data) {
-        const { user: newUser, tokens } = res.data.data;
-        setAuth(newUser, tokens.accessToken);
-        showToast('Logged in successfully! You can now start video chat.', 'success');
-      }
-    } catch {
-      showToast('Quick login failed. Please register manually.', 'error');
-    }
-  };
 
   // Call duration timer
   useEffect(() => {
@@ -576,14 +552,6 @@ export default function VideoChatPage() {
                 </Button>
               </Link>
             </div>
-
-            {/* Fast Demo login for instant testing */}
-            <button
-              onClick={handleQuickDemoLogin}
-              className="text-xs text-purple-400 hover:text-purple-300 font-semibold underline underline-offset-4 cursor-pointer pt-2"
-            >
-              ⚡ Instant 1-Click Demo Login (Test Mode)
-            </button>
           </div>
         </Card>
       </div>
